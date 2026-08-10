@@ -48,6 +48,7 @@ func (q *Redis) ensureGroup(ctx context.Context) error {
 	return nil
 }
 
+// Publish implements Queue.
 func (q *Redis) Publish(ctx context.Context, jobID string) error {
 	err := q.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: q.stream,

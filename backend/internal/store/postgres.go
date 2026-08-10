@@ -65,6 +65,7 @@ func scanJob(row rowScanner, extra ...any) (*job.Job, error) {
 	return &j, nil
 }
 
+// Create implements Store.
 func (p *Postgres) Create(ctx context.Context, j *job.Job) error {
 	const q = `
 		INSERT INTO jobs (id, type, payload, status, priority, run_at, max_attempts)
@@ -79,6 +80,7 @@ func (p *Postgres) Create(ctx context.Context, j *job.Job) error {
 	return nil
 }
 
+// Get implements Store.
 func (p *Postgres) Get(ctx context.Context, id uuid.UUID) (*job.Job, error) {
 	q := `SELECT ` + jobColumns + ` FROM jobs WHERE id = $1`
 	j, err := scanJob(p.pool.QueryRow(ctx, q, id))
@@ -91,6 +93,7 @@ func (p *Postgres) Get(ctx context.Context, id uuid.UUID) (*job.Job, error) {
 	return j, nil
 }
 
+// List implements Store.
 func (p *Postgres) List(ctx context.Context, filter ListFilter) (ListResult, error) {
 	where := make([]string, 0, 2)
 	args := make([]any, 0, 4)
@@ -143,6 +146,7 @@ func (p *Postgres) List(ctx context.Context, filter ListFilter) (ListResult, err
 	return out, nil
 }
 
+// ClaimDue implements Store.
 func (p *Postgres) ClaimDue(ctx context.Context, limit int) ([]*job.Job, error) {
 	q := `
 		WITH claimed AS (
@@ -174,6 +178,7 @@ func (p *Postgres) ClaimDue(ctx context.Context, limit int) ([]*job.Job, error) 
 	return jobs, rows.Err()
 }
 
+// MarkRunning implements Store.
 func (p *Postgres) MarkRunning(ctx context.Context, id uuid.UUID, consumer string) (*job.Job, error) {
 	q := `
 		UPDATE jobs
@@ -191,6 +196,7 @@ func (p *Postgres) MarkRunning(ctx context.Context, id uuid.UUID, consumer strin
 	return j, nil
 }
 
+// Complete implements Store.
 func (p *Postgres) Complete(ctx context.Context, id uuid.UUID, result json.RawMessage) error {
 	const q = `
 		UPDATE jobs
@@ -206,6 +212,7 @@ func (p *Postgres) Complete(ctx context.Context, id uuid.UUID, result json.RawMe
 	return nil
 }
 
+// Retry implements Store.
 func (p *Postgres) Retry(ctx context.Context, id uuid.UUID, lastErr string, nextRunAt time.Time) error {
 	const q = `
 		UPDATE jobs
@@ -221,6 +228,7 @@ func (p *Postgres) Retry(ctx context.Context, id uuid.UUID, lastErr string, next
 	return nil
 }
 
+// Kill implements Store.
 func (p *Postgres) Kill(ctx context.Context, id uuid.UUID, lastErr string) error {
 	const q = `
 		UPDATE jobs
@@ -236,6 +244,7 @@ func (p *Postgres) Kill(ctx context.Context, id uuid.UUID, lastErr string) error
 	return nil
 }
 
+// Cancel implements Store.
 func (p *Postgres) Cancel(ctx context.Context, id uuid.UUID) error {
 	const q = `
 		UPDATE jobs SET status = $2, updated_at = now()
@@ -250,6 +259,7 @@ func (p *Postgres) Cancel(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ReclaimStale implements Store.
 func (p *Postgres) ReclaimStale(ctx context.Context, olderThan time.Duration, limit int) ([]*job.Job, error) {
 	q := `
 		WITH stale AS (
@@ -284,6 +294,7 @@ func (p *Postgres) ReclaimStale(ctx context.Context, olderThan time.Duration, li
 	return jobs, rows.Err()
 }
 
+// Stats implements Store.
 func (p *Postgres) Stats(ctx context.Context) (Stats, error) {
 	const q = `SELECT status, count(*) FROM jobs GROUP BY status`
 	rows, err := p.pool.Query(ctx, q)
