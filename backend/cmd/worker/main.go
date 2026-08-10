@@ -16,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdullah-zubair/jobqueue/internal/config"
+	"github.com/abdullah-zubair/jobqueue/internal/handlers"
 	"github.com/abdullah-zubair/jobqueue/internal/job"
 	"github.com/abdullah-zubair/jobqueue/internal/logging"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
@@ -57,12 +58,18 @@ func run() error {
 		return fmt.Errorf("init queue: %w", err)
 	}
 
-	// Job type handlers are registered here as they're added in
-	// internal/handlers; none exist yet, so every delivered job will be
-	// killed as "no handler registered" until that milestone lands.
-	registry := job.NewRegistry()
+	jobStore := store.NewPostgres(pool)
 
-	p := worker.New(store.NewPostgres(pool), q, registry, cfg.ConsumerName, worker.Config{
+	registry := job.NewRegistry()
+	handlers.Register(registry, handlers.Deps{
+		Store:        jobStore,
+		SMTPAddr:     cfg.SMTPAddr,
+		SMTPFrom:     cfg.SMTPFrom,
+		SMTPUsername: cfg.SMTPUsername,
+		SMTPPassword: cfg.SMTPPassword,
+	})
+
+	p := worker.New(jobStore, q, registry, cfg.ConsumerName, worker.Config{
 		Concurrency:     cfg.Concurrency,
 		ConsumeBatch:    cfg.ConsumeBatch,
 		ReclaimInterval: cfg.ReclaimInterval,

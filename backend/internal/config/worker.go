@@ -22,6 +22,14 @@ type Worker struct {
 	RetryBaseDelay  time.Duration
 	RetryMaxDelay   time.Duration
 
+	// SMTP settings for the send_email handler. Defaults target a local
+	// Mailpit instance, which needs no auth -- leave SMTPUsername empty for
+	// that case.
+	SMTPAddr     string
+	SMTPFrom     string
+	SMTPUsername string
+	SMTPPassword string
+
 	LogEnv   string
 	LogLevel string
 }
@@ -35,6 +43,10 @@ func LoadWorker() (Worker, error) {
 		Stream:        getEnv("QUEUE_STREAM", "jobqueue:jobs"),
 		ConsumerGroup: getEnv("QUEUE_GROUP", "workers"),
 		ConsumerName:  getEnv("CONSUMER_NAME", defaultConsumerName()),
+		SMTPAddr:      getEnv("SMTP_ADDR", "localhost:1025"),
+		SMTPFrom:      getEnv("SMTP_FROM", "jobqueue@example.com"),
+		SMTPUsername:  getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:  getEnv("SMTP_PASSWORD", ""),
 		LogEnv:        getEnv("LOG_ENV", "development"),
 		LogLevel:      getEnv("LOG_LEVEL", "info"),
 	}
