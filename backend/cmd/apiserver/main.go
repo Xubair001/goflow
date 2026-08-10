@@ -24,6 +24,7 @@ import (
 	"github.com/abdullah-zubair/jobqueue/internal/job"
 	"github.com/abdullah-zubair/jobqueue/internal/logging"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
+	"github.com/abdullah-zubair/jobqueue/internal/web"
 )
 
 func main() {
@@ -58,6 +59,11 @@ func run() error {
 	registry := job.NewRegistry()
 	handlers.Register(registry, handlers.Deps{})
 
+	staticFS, err := web.DistFS()
+	if err != nil {
+		return fmt.Errorf("load embedded dashboard: %w", err)
+	}
+
 	srv := api.NewServer(api.Config{
 		Store:       store.NewPostgres(pool),
 		Registry:    registry,
@@ -65,6 +71,7 @@ func run() error {
 		Redis:       redisPinger{redisClient},
 		Logger:      logger,
 		CORSOrigins: cfg.CORSOrigins,
+		StaticFS:    staticFS,
 	})
 
 	go srv.RunEventsPoller(ctx, cfg.EventsPollInterval)

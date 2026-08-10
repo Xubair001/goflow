@@ -4,6 +4,7 @@
 package api
 
 import (
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -28,6 +29,7 @@ type Server struct {
 	db          pinger
 	redis       pinger
 	corsOrigins []string
+	staticFS    fs.FS
 }
 
 // Config controls Server construction.
@@ -40,6 +42,9 @@ type Config struct {
 	// CORSOrigins are the origins allowed to call the API from a browser,
 	// e.g. the dashboard's dev server. Empty disables cross-origin requests.
 	CORSOrigins []string
+	// StaticFS serves the built dashboard at "/" (see internal/web). Nil
+	// skips mounting it — used by tests that only care about the API.
+	StaticFS fs.FS
 }
 
 // NewServer returns a Server ready to build routes and serve requests.
@@ -52,6 +57,7 @@ func NewServer(cfg Config) *Server {
 		db:          cfg.DB,
 		redis:       cfg.Redis,
 		corsOrigins: cfg.CORSOrigins,
+		staticFS:    cfg.StaticFS,
 	}
 }
 
@@ -90,6 +96,13 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/queue/stats", s.handleQueueStats)
 		r.Get("/events", s.handleEvents)
 	})
+
+	// Dashboard last: chi matches the more specific routes above first
+	// regardless of registration order, so this catch-all never shadows
+	// the API/health/docs routes.
+	if s.staticFS != nil {
+		r.Handle("/*", http.FileServer(http.FS(s.staticFS)))
+	}
 
 	return r
 }
