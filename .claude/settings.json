@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tar -xzf go1.26.5.linux-amd64.tar.gz)",
+      "Bash(mv go *)",
+      "Bash(rm go1.26.5.linux-amd64.tar.gz)"
+    ]
+  }
+}
