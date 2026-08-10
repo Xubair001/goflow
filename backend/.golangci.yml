@@ -1,0 +1,40 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - revive
+    - bodyclose
+    - noctx
+    - unconvert
+    - unparam
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+          disabled: true
+    gosec:
+      excludes:
+        - G404 # math/rand is fine for jitter, not for security tokens
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - unparam
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/abdullah-zubair/jobqueue
