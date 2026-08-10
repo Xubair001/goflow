@@ -25,6 +25,9 @@ func TestLoadDispatcher_Defaults(t *testing.T) {
 	if c.ConsumerGroup != "workers" {
 		t.Errorf("ConsumerGroup = %q, want %q", c.ConsumerGroup, "workers")
 	}
+	if c.MetricsAddr != ":9092" {
+		t.Errorf("MetricsAddr = %q, want %q", c.MetricsAddr, ":9092")
+	}
 }
 
 func TestLoadDispatcher_OverridesFromEnv(t *testing.T) {

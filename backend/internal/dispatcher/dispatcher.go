@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 )
@@ -103,6 +104,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) {
 			d.logger.Error("publish job", "job_id", j.ID, "job_type", j.Type, "error", err)
 			continue
 		}
+		metrics.JobsDispatched.WithLabelValues(j.Type).Inc()
 		d.logger.Info("dispatched job", "job_id", j.ID, "job_type", j.Type)
 	}
 }
@@ -120,6 +122,7 @@ func (d *Dispatcher) ReconcileOnce(ctx context.Context) {
 	}
 
 	for _, j := range jobs {
+		metrics.JobsReconciled.WithLabelValues(j.Type).Inc()
 		d.logger.Warn("reclaimed stale job", "job_id", j.ID, "job_type", j.Type, "attempts", j.Attempts)
 	}
 }

@@ -25,6 +25,9 @@ func TestLoadWorker_Defaults(t *testing.T) {
 	if c.ConsumerName == "" {
 		t.Error("ConsumerName default should not be empty")
 	}
+	if c.MetricsAddr != ":9091" {
+		t.Errorf("MetricsAddr = %q, want %q", c.MetricsAddr, ":9091")
+	}
 }
 
 func TestLoadWorker_OverridesFromEnv(t *testing.T) {

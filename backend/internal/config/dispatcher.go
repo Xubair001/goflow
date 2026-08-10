@@ -14,6 +14,10 @@ type Dispatcher struct {
 	BatchSize         int
 	StaleAfter        time.Duration
 
+	// MetricsAddr serves /metrics and /healthz -- the dispatcher has no
+	// other HTTP surface.
+	MetricsAddr string
+
 	LogEnv   string
 	LogLevel string
 }
@@ -26,6 +30,7 @@ func LoadDispatcher() (Dispatcher, error) {
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
 		Stream:        getEnv("QUEUE_STREAM", "jobqueue:jobs"),
 		ConsumerGroup: getEnv("QUEUE_GROUP", "workers"),
+		MetricsAddr:   getEnv("METRICS_ADDR", ":9092"),
 		LogEnv:        getEnv("LOG_ENV", "development"),
 		LogLevel:      getEnv("LOG_LEVEL", "info"),
 	}
