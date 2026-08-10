@@ -24,6 +24,8 @@ import (
 //	queued    -> cancelled           (cancelled before a worker claims it)
 type Status string
 
+// The defined Status values; see the Status doc comment above for the
+// transition diagram between them.
 const (
 	StatusPending   Status = "pending"
 	StatusQueued    Status = "queued"

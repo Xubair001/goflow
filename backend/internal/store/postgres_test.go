@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -56,12 +58,36 @@ func runTests(m *testing.M) int {
 	}
 	defer pool.Close()
 
+	// The postgres image restarts its server process once after running
+	// first-time init (applying POSTGRES_USER/PASSWORD/DB), so the port can
+	// accept and then immediately drop a connection right after the
+	// container's own readiness check passes. Wait for a real query to
+	// succeed before trusting the pool.
+	if err := waitForReady(ctx, pool, 30*time.Second); err != nil {
+		log.Fatalf("wait for postgres ready: %v", err)
+	}
+
 	if err := applyMigrations(ctx, pool); err != nil {
 		log.Fatalf("apply migrations: %v", err)
 	}
 
 	testPool = pool
 	return m.Run()
+}
+
+// waitForReady polls the pool with a real query until it succeeds or
+// timeout elapses, absorbing the connection resets that happen while
+// Postgres is mid-restart right after container startup.
+func waitForReady(ctx context.Context, pool *pgxpool.Pool, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if lastErr = pool.Ping(ctx); lastErr == nil {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("no successful ping within %s: %w", timeout, lastErr)
 }
 
 // applyMigrations runs every *.up.sql file in backend/migrations, in order,
@@ -105,6 +131,23 @@ func newStore(t *testing.T) *store.Postgres {
 	return store.NewPostgres(testPool)
 }
 
+// assertJSONEqual compares two JSON documents semantically rather than
+// byte-for-byte: Postgres's JSONB type reformats JSON on storage (e.g. adds
+// a space after ":"), so exact string comparison would be the wrong check.
+func assertJSONEqual(t *testing.T, got, want json.RawMessage) {
+	t.Helper()
+	var gotVal, wantVal any
+	if err := json.Unmarshal(got, &gotVal); err != nil {
+		t.Fatalf("unmarshal got %s: %v", got, err)
+	}
+	if err := json.Unmarshal(want, &wantVal); err != nil {
+		t.Fatalf("unmarshal want %s: %v", want, err)
+	}
+	if !reflect.DeepEqual(gotVal, wantVal) {
+		t.Errorf("JSON = %s, want %s", got, want)
+	}
+}
+
 // setupRunningJob creates a job and drives it through ClaimDue + MarkRunning
 // so tests can exercise the post-dispatch transitions (Complete/Retry/Kill)
 // without repeating that setup inline.
@@ -142,9 +185,7 @@ func TestPostgres_CreateAndGet(t *testing.T) {
 	if got.ID != j.ID || got.Type != j.Type || got.Status != job.StatusPending {
 		t.Errorf("Get() = %+v, want matching %+v", got, j)
 	}
-	if string(got.Payload) != `{"to":"a@example.com"}` {
-		t.Errorf("Payload = %s, want %s", got.Payload, j.Payload)
-	}
+	assertJSONEqual(t, got.Payload, j.Payload)
 }
 
 func TestPostgres_Get_NotFound(t *testing.T) {
@@ -345,9 +386,7 @@ func TestPostgres_Complete(t *testing.T) {
 	if got.Status != job.StatusCompleted {
 		t.Errorf("Status = %s, want %s", got.Status, job.StatusCompleted)
 	}
-	if string(got.Result) != string(result) {
-		t.Errorf("Result = %s, want %s", got.Result, result)
-	}
+	assertJSONEqual(t, got.Result, result)
 }
 
 func TestPostgres_Retry(t *testing.T) {

@@ -48,6 +48,7 @@ func (q *Redis) ensureGroup(ctx context.Context) error {
 	return nil
 }
 
+// Publish implements Queue.
 func (q *Redis) Publish(ctx context.Context, jobID string) error {
 	err := q.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: q.stream,
@@ -59,6 +60,7 @@ func (q *Redis) Publish(ctx context.Context, jobID string) error {
 	return nil
 }
 
+// Consume implements Queue.
 func (q *Redis) Consume(ctx context.Context, consumer string, max int64) ([]Message, error) {
 	streams, err := q.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    q.group,
@@ -79,6 +81,7 @@ func (q *Redis) Consume(ctx context.Context, consumer string, max int64) ([]Mess
 	return toMessages(streams[0].Messages), nil
 }
 
+// Ack implements Queue.
 func (q *Redis) Ack(ctx context.Context, msg Message) error {
 	if err := q.client.XAck(ctx, q.stream, q.group, msg.ID).Err(); err != nil {
 		return fmt.Errorf("queue: ack %s: %w", msg.ID, err)
@@ -86,6 +89,7 @@ func (q *Redis) Ack(ctx context.Context, msg Message) error {
 	return nil
 }
 
+// Reclaim implements Queue.
 func (q *Redis) Reclaim(ctx context.Context, consumer string, minIdle time.Duration, max int64) ([]Message, error) {
 	messages, _, err := q.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
 		Stream:   q.stream,
