@@ -131,7 +131,11 @@ func (f *fakeStore) List(context.Context, store.ListFilter) (store.ListResult, e
 
 func (f *fakeStore) ClaimDue(context.Context, int) ([]*job.Job, error) { return nil, nil }
 
-func (f *fakeStore) Cancel(context.Context, uuid.UUID) error { return nil }
+func (f *fakeStore) Cancel(context.Context, uuid.UUID) (*job.Job, error) { return nil, nil }
+
+func (f *fakeStore) Reactivate(context.Context, uuid.UUID) (*job.Job, error) {
+	return nil, store.ErrNotFound
+}
 
 func (f *fakeStore) ReclaimStale(context.Context, time.Duration, int) ([]*job.Job, error) {
 	return nil, nil
