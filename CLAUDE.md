@@ -43,7 +43,9 @@ backend/
     api/         chi router, HTTP handlers, middleware, error envelope, SSE broadcaster
     metrics/     Prometheus collectors
   migrations/    golang-migrate SQL files
+  Dockerfile.{apiserver,worker,dispatcher}   multi-stage builds -> distroless
 frontend/        React + Vite + TypeScript + Tailwind admin dashboard
+docker-compose.yml   full local stack: postgres, redis, mailpit, migrate (one-shot), apiserver, dispatcher, worker
 ```
 
 Nothing here is meant to be imported by other modules, so everything backend lives under
@@ -57,10 +59,15 @@ make test               # unit tests, -race
 make test-integration   # integration tests (testcontainers-go, needs Docker), tag: integration
 make lint               # golangci-lint run ./...
 make fmt                # gofumpt + goimports
-make dev-up             # docker compose up -d (postgres, redis, ...)
+make dev-up             # docker compose up -d (postgres, redis only -- for local dev against `go run`)
 make migrate-new name=X # create a new migration pair
 make migrate-up         # apply migrations against DB_URL
+make frontend-build     # npm ci && npm run build, output lands in internal/web/dist for go:embed
 ```
+
+For the full containerized stack (apiserver + dispatcher + worker + their dependencies, all built from
+source), run `docker compose up --build` from the repo root, not `make dev-up` (that's the lighter
+dependencies-only stack for running the Go binaries directly on the host during development).
 
 Run these from `backend/`, or use the Makefile targets from the repo root once one exists there too.
 
@@ -91,3 +98,10 @@ Run these from `backend/`, or use the Makefile targets from the repo root once o
 - The `apiserver` embeds the frontend's built assets (`embed.FS`) for production; in local dev, run
   the Vite dev server separately and let it proxy API calls instead of rebuilding the Go binary on
   every frontend change.
+- `docker compose up`'s `migrate` service applies migrations once and exits; apiserver/dispatcher/
+  worker wait on it via `service_completed_successfully`, not a fixed sleep.
+- The `send_email` handler points at `mailpit:1025` inside compose (`localhost:1025` outside it) --
+  open http://localhost:8025 to see mail workers "send" instead of it going anywhere real.
+- `worker`/`dispatcher` expose `/metrics` + `/healthz` on `:9091`/`:9092` respectively (not published
+  to the host in `docker-compose.yml`, since a fixed host port would collide under
+  `docker compose up --scale worker=N`); `apiserver` folds its own `/metrics` into the main API port.

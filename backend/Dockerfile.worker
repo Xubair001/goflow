@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+#
+# Build context is the repo root (see docker-compose.yml), for consistency
+# with Dockerfile.apiserver even though this one only needs backend/.
+
+FROM golang:1.26-alpine AS build
+WORKDIR /backend
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/worker /worker
+USER nonroot:nonroot
+EXPOSE 9091
+ENTRYPOINT ["/worker"]
