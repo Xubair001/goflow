@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdullah-zubair/jobqueue/internal/api"
@@ -23,6 +24,7 @@ import (
 	"github.com/abdullah-zubair/jobqueue/internal/handlers"
 	"github.com/abdullah-zubair/jobqueue/internal/job"
 	"github.com/abdullah-zubair/jobqueue/internal/logging"
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 	"github.com/abdullah-zubair/jobqueue/internal/web"
 )
@@ -64,8 +66,11 @@ func run() error {
 		return fmt.Errorf("load embedded dashboard: %w", err)
 	}
 
+	jobStore := store.NewPostgres(pool)
+	prometheus.MustRegister(metrics.NewQueueDepthCollector(jobStore, logger))
+
 	srv := api.NewServer(api.Config{
-		Store:       store.NewPostgres(pool),
+		Store:       jobStore,
 		Registry:    registry,
 		DB:          pool,
 		Redis:       redisPinger{redisClient},

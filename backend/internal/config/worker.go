@@ -31,6 +31,10 @@ type Worker struct {
 	SMTPUsername string
 	SMTPPassword string
 
+	// MetricsAddr serves /metrics and /healthz -- the worker has no other
+	// HTTP surface.
+	MetricsAddr string
+
 	LogEnv   string
 	LogLevel string
 }
@@ -48,6 +52,7 @@ func LoadWorker() (Worker, error) {
 		SMTPFrom:      getEnv("SMTP_FROM", "jobqueue@example.com"),
 		SMTPUsername:  getEnv("SMTP_USERNAME", ""),
 		SMTPPassword:  getEnv("SMTP_PASSWORD", ""),
+		MetricsAddr:   getEnv("METRICS_ADDR", ":9091"),
 		LogEnv:        getEnv("LOG_ENV", "development"),
 		LogLevel:      getEnv("LOG_LEVEL", "info"),
 	}

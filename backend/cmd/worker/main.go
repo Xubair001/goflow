@@ -19,6 +19,7 @@ import (
 	"github.com/abdullah-zubair/jobqueue/internal/handlers"
 	"github.com/abdullah-zubair/jobqueue/internal/job"
 	"github.com/abdullah-zubair/jobqueue/internal/logging"
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 	"github.com/abdullah-zubair/jobqueue/internal/worker"
@@ -67,6 +68,8 @@ func run() error {
 		SMTPUsername: cfg.SMTPUsername,
 		SMTPPassword: cfg.SMTPPassword,
 	})
+
+	go metrics.ServeUntil(ctx, cfg.MetricsAddr, logger)
 
 	p := worker.New(jobStore, q, registry, cfg.ConsumerName, worker.Config{
 		Concurrency:     cfg.Concurrency,

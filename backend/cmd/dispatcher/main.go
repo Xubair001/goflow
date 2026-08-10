@@ -17,6 +17,7 @@ import (
 	"github.com/abdullah-zubair/jobqueue/internal/config"
 	"github.com/abdullah-zubair/jobqueue/internal/dispatcher"
 	"github.com/abdullah-zubair/jobqueue/internal/logging"
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 )
@@ -55,6 +56,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("init queue: %w", err)
 	}
+
+	go metrics.ServeUntil(ctx, cfg.MetricsAddr, logger)
 
 	d := dispatcher.New(store.NewPostgres(pool), q, dispatcher.Config{
 		PollInterval:      cfg.PollInterval,

@@ -88,11 +88,12 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	j := job.New(req.Type, req.Payload, opts...)
 	if err := s.store.Create(r.Context(), j); err != nil {
-		s.logger.Error("create job", "error", err)
+		s.logger.Error("create job", "job_type", req.Type, "error", err)
 		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to create job")
 		return
 	}
 
+	s.logger.Info("job created", "job_id", j.ID, "job_type", j.Type)
 	writeJSON(w, s.logger, http.StatusCreated, toJobResponse(j))
 }
 
@@ -173,7 +174,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.logger.Error("get job", "error", err)
+		s.logger.Error("get job", "job_id", id, "error", err)
 		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to get job")
 		return
 	}
@@ -195,10 +196,11 @@ func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.logger.Error("reactivate job", "error", err)
+		s.logger.Error("reactivate job", "job_id", id, "error", err)
 		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to retry job")
 		return
 	}
+	s.logger.Info("job reactivated", "job_id", j.ID, "job_type", j.Type)
 	writeJSON(w, s.logger, http.StatusOK, toJobResponse(j))
 }
 
@@ -215,9 +217,10 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.logger.Error("cancel job", "error", err)
+		s.logger.Error("cancel job", "job_id", id, "error", err)
 		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to cancel job")
 		return
 	}
+	s.logger.Info("job cancelled", "job_id", j.ID, "job_type", j.Type)
 	writeJSON(w, s.logger, http.StatusOK, toJobResponse(j))
 }
