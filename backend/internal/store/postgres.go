@@ -16,9 +16,11 @@ import (
 )
 
 // jobColumns must list every job.Job field in the exact order scanJob
-// expects them.
-const jobColumns = `id, type, payload, status, priority, run_at, attempts, ` +
-	`max_attempts, last_error, result, locked_by, locked_at, created_at, updated_at`
+// expects them. Columns are qualified with the jobs. prefix because
+// ClaimDue and ReclaimStale RETURN this list from an UPDATE ... FROM a CTE
+// that also has an id column — unqualified names would be ambiguous there.
+const jobColumns = `jobs.id, jobs.type, jobs.payload, jobs.status, jobs.priority, jobs.run_at, jobs.attempts, ` +
+	`jobs.max_attempts, jobs.last_error, jobs.result, jobs.locked_by, jobs.locked_at, jobs.created_at, jobs.updated_at`
 
 // Postgres is the Store implementation backed by PostgreSQL, using
 // SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent job claiming across
@@ -156,7 +158,7 @@ func (p *Postgres) ClaimDue(ctx context.Context, limit int) ([]*job.Job, error) 
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		)
-		UPDATE jobs SET status = $3, updated_at = now()
+		UPDATE jobs SET status = $3, locked_at = now(), updated_at = now()
 		FROM claimed
 		WHERE jobs.id = claimed.id
 		RETURNING ` + jobColumns
