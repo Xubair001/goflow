@@ -447,8 +447,12 @@ func TestPostgres_Cancel_Pending(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	if err := s.Cancel(ctx, j.ID); err != nil {
+	cancelled, err := s.Cancel(ctx, j.ID)
+	if err != nil {
 		t.Fatalf("Cancel() error = %v", err)
+	}
+	if cancelled.Status != job.StatusCancelled {
+		t.Errorf("Cancel() returned Status = %s, want %s", cancelled.Status, job.StatusCancelled)
 	}
 	got, err := s.Get(ctx, j.ID)
 	if err != nil {
@@ -464,9 +468,67 @@ func TestPostgres_Cancel_AlreadyRunning(t *testing.T) {
 	ctx := context.Background()
 	j := setupRunningJob(t, s, ctx)
 
-	err := s.Cancel(ctx, j.ID)
+	_, err := s.Cancel(ctx, j.ID)
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Cancel() error = %v, want %v", err, store.ErrNotFound)
+	}
+}
+
+func TestPostgres_Reactivate_Dead(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	j := setupRunningJob(t, s, ctx)
+	if err := s.Kill(ctx, j.ID, "exhausted retries"); err != nil {
+		t.Fatalf("Kill() error = %v", err)
+	}
+
+	reactivated, err := s.Reactivate(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("Reactivate() error = %v", err)
+	}
+	if reactivated.Status != job.StatusPending {
+		t.Errorf("Status = %s, want %s", reactivated.Status, job.StatusPending)
+	}
+	if reactivated.Attempts != 0 {
+		t.Errorf("Attempts = %d, want 0", reactivated.Attempts)
+	}
+	if reactivated.LastError != "" {
+		t.Errorf("LastError = %q, want empty", reactivated.LastError)
+	}
+}
+
+func TestPostgres_Reactivate_Cancelled(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	j := job.New("send_email", json.RawMessage(`{}`))
+	if err := s.Create(ctx, j); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := s.Cancel(ctx, j.ID); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+
+	reactivated, err := s.Reactivate(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("Reactivate() error = %v", err)
+	}
+	if reactivated.Status != job.StatusPending {
+		t.Errorf("Status = %s, want %s", reactivated.Status, job.StatusPending)
+	}
+}
+
+func TestPostgres_Reactivate_NotDeadOrCancelled(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	j := job.New("send_email", json.RawMessage(`{}`))
+	if err := s.Create(ctx, j); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	// Still pending -- Reactivate is only for dead/cancelled jobs.
+
+	_, err := s.Reactivate(ctx, j.ID)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Reactivate() error = %v, want %v", err, store.ErrNotFound)
 	}
 }
 

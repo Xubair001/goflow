@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: GoFlow API
+  description: >
+    Job queue and background worker system. Postgres is the source of
+    truth for job state; this API reads/writes it directly and never
+    touches the Redis transport layer.
+  version: "1.0"
+servers:
+  - url: /api/v1
+
+tags:
+  - name: jobs
+  - name: queue
+
+paths:
+  /jobs:
+    post:
+      tags: [jobs]
+      summary: Submit a new job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    get:
+      tags: [jobs]
+      summary: List jobs
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/JobStatus"
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: A page of jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListJobsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /jobs/{id}:
+    get:
+      tags: [jobs]
+      summary: Get one job
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /jobs/{id}/retry:
+    post:
+      tags: [jobs]
+      summary: Retry a dead or cancelled job
+      description: >
+        Resets the job to pending with a fresh attempt budget. Returns 404
+        if the job doesn't exist, or isn't dead or cancelled.
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The reactivated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /jobs/{id}/cancel:
+    post:
+      tags: [jobs]
+      summary: Cancel a not-yet-running job
+      description: >
+        Returns 404 if the job doesn't exist, or is already running or in
+        a terminal state.
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The cancelled job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /queue/stats:
+    get:
+      tags: [queue]
+      summary: Current job counts by status
+      responses:
+        "200":
+          description: Queue stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueStats"
+
+  /events:
+    get:
+      tags: [queue]
+      summary: Live queue stats via Server-Sent Events
+      description: >
+        Streams a "stats" event with the current QueueStats roughly every
+        few seconds. Fetch /queue/stats for the initial render; treat this
+        as updates layered on top of it.
+      responses:
+        "200":
+          description: text/event-stream of QueueStats snapshots
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+components:
+  parameters:
+    JobID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: The request was invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: No matching job
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    JobStatus:
+      type: string
+      enum: [pending, queued, running, completed, dead, cancelled]
+
+    CreateJobRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: A registered job type, e.g. send_email
+          example: send_email
+        payload:
+          type: object
+          description: Type-specific input; defaults to {} when omitted.
+        priority:
+          type: integer
+          default: 0
+          description: Higher values dispatch first among otherwise-due jobs.
+        run_at:
+          type: string
+          format: date-time
+          description: Delay dispatch until this time; defaults to now.
+        max_attempts:
+          type: integer
+          description: Overrides the default retry budget.
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        payload:
+          type: object
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        priority:
+          type: integer
+        run_at:
+          type: string
+          format: date-time
+        attempts:
+          type: integer
+        max_attempts:
+          type: integer
+        last_error:
+          type: string
+        result:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ListJobsResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    QueueStats:
+      type: object
+      properties:
+        Pending:
+          type: integer
+        Queued:
+          type: integer
+        Running:
+          type: integer
+        Completed:
+          type: integer
+        Dead:
+          type: integer
+        Cancelled:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string

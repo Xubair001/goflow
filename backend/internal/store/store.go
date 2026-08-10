@@ -80,9 +80,20 @@ type Store interface {
 	// Kill marks a job StatusDead after its attempts are exhausted.
 	Kill(ctx context.Context, id uuid.UUID, lastErr string) error
 
-	// Cancel marks a not-yet-running job StatusCancelled. It returns
-	// ErrNotFound if the job is already running or in a terminal state.
-	Cancel(ctx context.Context, id uuid.UUID) error
+	// Cancel marks a not-yet-running job StatusCancelled and returns it. It
+	// returns ErrNotFound if the job is already running or in a terminal
+	// state.
+	Cancel(ctx context.Context, id uuid.UUID) (*job.Job, error)
+
+	// Reactivate transitions a dead or cancelled job back to StatusPending
+	// for another attempt, resetting Attempts to 0 so it gets its full
+	// MaxAttempts budget again. It's meant for an operator-driven "retry"
+	// action (e.g. from the API), which is why it's distinct from Retry:
+	// Retry is the worker's internal bookkeeping for a single failed
+	// attempt and has no status guard, since it's only ever called right
+	// after MarkRunning on the same job. Reactivate returns ErrNotFound if
+	// the job isn't dead or cancelled.
+	Reactivate(ctx context.Context, id uuid.UUID) (*job.Job, error)
 
 	// ReclaimStale finds queued/running jobs whose lease (locked_at) is
 	// older than olderThan — evidence their Redis stream entry was lost or
