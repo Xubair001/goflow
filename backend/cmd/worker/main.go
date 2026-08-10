@@ -50,10 +50,9 @@ func run() error {
 	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer func() { _ = redisClient.Close() }()
 
-	// Block indefinitely on each Consume call (until new work or ctx
-	// cancellation) rather than polling on a fixed interval: it's both
-	// lower latency and cheaper on Redis than a tight poll loop.
-	q, err := queue.NewRedis(ctx, redisClient, cfg.Stream, cfg.ConsumerGroup, 0)
+	// Bounded block (not 0/infinite): see config.Worker.ConsumeBlock for
+	// why an unbounded blocking read is a graceful-shutdown risk.
+	q, err := queue.NewRedis(ctx, redisClient, cfg.Stream, cfg.ConsumerGroup, cfg.ConsumeBlock)
 	if err != nil {
 		return fmt.Errorf("init queue: %w", err)
 	}

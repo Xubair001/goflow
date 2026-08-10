@@ -8,9 +8,15 @@ DB_URL       ?= postgres://jobqueue:jobqueue@localhost:5432/jobqueue?sslmode=dis
 MIGRATIONS   := migrations
 
 .PHONY: build $(BINARIES) run-% test test-integration test-race lint fmt tidy \
-        migrate-up migrate-down migrate-new dev-up dev-down clean
+        migrate-up migrate-down migrate-new dev-up dev-down clean frontend-build
 
 build: $(BINARIES)
+
+# Builds the React dashboard straight into internal/web/dist (see
+# frontend/vite.config.ts's outDir), so a subsequent `make build` embeds
+# the real app instead of the placeholder page checked into git.
+frontend-build:
+	cd ../frontend && npm ci && npm run build
 
 $(BINARIES):
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$@ ./cmd/$@

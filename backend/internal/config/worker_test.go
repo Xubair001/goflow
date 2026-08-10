@@ -19,6 +19,9 @@ func TestLoadWorker_Defaults(t *testing.T) {
 	if c.JobTimeout != 2*time.Minute {
 		t.Errorf("JobTimeout = %v, want %v", c.JobTimeout, 2*time.Minute)
 	}
+	if c.ConsumeBlock != 5*time.Second {
+		t.Errorf("ConsumeBlock = %v, want %v", c.ConsumeBlock, 5*time.Second)
+	}
 	if c.ConsumerName == "" {
 		t.Error("ConsumerName default should not be empty")
 	}
