@@ -247,18 +247,39 @@ func (p *Postgres) Kill(ctx context.Context, id uuid.UUID, lastErr string) error
 }
 
 // Cancel implements Store.
-func (p *Postgres) Cancel(ctx context.Context, id uuid.UUID) error {
-	const q = `
+func (p *Postgres) Cancel(ctx context.Context, id uuid.UUID) (*job.Job, error) {
+	q := `
 		UPDATE jobs SET status = $2, updated_at = now()
-		WHERE id = $1 AND status IN ($3, $4)`
-	tag, err := p.pool.Exec(ctx, q, id, job.StatusCancelled, job.StatusPending, job.StatusQueued)
+		WHERE id = $1 AND status IN ($3, $4)
+		RETURNING ` + jobColumns
+
+	j, err := scanJob(p.pool.QueryRow(ctx, q, id, job.StatusCancelled, job.StatusPending, job.StatusQueued))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("store: cancel job %s: %w", id, err)
+		return nil, fmt.Errorf("store: cancel job %s: %w", id, err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
+	return j, nil
+}
+
+// Reactivate implements Store.
+func (p *Postgres) Reactivate(ctx context.Context, id uuid.UUID) (*job.Job, error) {
+	q := `
+		UPDATE jobs
+		SET status = $2, attempts = 0, last_error = '', locked_by = '', locked_at = NULL,
+		    run_at = now(), updated_at = now()
+		WHERE id = $1 AND status IN ($3, $4)
+		RETURNING ` + jobColumns
+
+	j, err := scanJob(p.pool.QueryRow(ctx, q, id, job.StatusPending, job.StatusDead, job.StatusCancelled))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
 	}
-	return nil
+	if err != nil {
+		return nil, fmt.Errorf("store: reactivate job %s: %w", id, err)
+	}
+	return j, nil
 }
 
 // ReclaimStale implements Store.

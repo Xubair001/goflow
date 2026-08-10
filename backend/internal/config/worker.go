@@ -16,6 +16,7 @@ type Worker struct {
 
 	Concurrency     int
 	ConsumeBatch    int64
+	ConsumeBlock    time.Duration
 	ReclaimInterval time.Duration
 	ReclaimMinIdle  time.Duration
 	JobTimeout      time.Duration
@@ -29,6 +30,10 @@ type Worker struct {
 	SMTPFrom     string
 	SMTPUsername string
 	SMTPPassword string
+
+	// MetricsAddr serves /metrics and /healthz -- the worker has no other
+	// HTTP surface.
+	MetricsAddr string
 
 	LogEnv   string
 	LogLevel string
@@ -47,6 +52,7 @@ func LoadWorker() (Worker, error) {
 		SMTPFrom:      getEnv("SMTP_FROM", "jobqueue@example.com"),
 		SMTPUsername:  getEnv("SMTP_USERNAME", ""),
 		SMTPPassword:  getEnv("SMTP_PASSWORD", ""),
+		MetricsAddr:   getEnv("METRICS_ADDR", ":9091"),
 		LogEnv:        getEnv("LOG_ENV", "development"),
 		LogLevel:      getEnv("LOG_LEVEL", "info"),
 	}
@@ -60,6 +66,14 @@ func LoadWorker() (Worker, error) {
 		return Worker{}, err
 	}
 	c.ConsumeBatch = int64(consumeBatch)
+	// Bounded rather than infinite (BLOCK 0): an in-flight blocking
+	// XREADGROUP isn't guaranteed to unblock promptly on context
+	// cancellation alone, which would leave graceful shutdown hanging
+	// whenever the worker is idle. A bounded block makes the fetch loop
+	// re-check ctx.Err() on its own cadence regardless.
+	if c.ConsumeBlock, err = getEnvDuration("WORKER_CONSUME_BLOCK", 5*time.Second); err != nil {
+		return Worker{}, err
+	}
 	if c.ReclaimInterval, err = getEnvDuration("WORKER_RECLAIM_INTERVAL", 30*time.Second); err != nil {
 		return Worker{}, err
 	}

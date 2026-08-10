@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/abdullah-zubair/jobqueue/internal/dispatcher"
 	"github.com/abdullah-zubair/jobqueue/internal/job"
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 )
@@ -80,7 +82,11 @@ func (f *fakeStore) Retry(context.Context, uuid.UUID, string, time.Time) error {
 
 func (f *fakeStore) Kill(context.Context, uuid.UUID, string) error { return nil }
 
-func (f *fakeStore) Cancel(context.Context, uuid.UUID) error { return nil }
+func (f *fakeStore) Cancel(context.Context, uuid.UUID) (*job.Job, error) { return nil, nil }
+
+func (f *fakeStore) Reactivate(context.Context, uuid.UUID) (*job.Job, error) {
+	return nil, store.ErrNotFound
+}
 
 func (f *fakeStore) Stats(context.Context) (store.Stats, error) { return store.Stats{}, nil }
 
@@ -215,5 +221,34 @@ func TestDispatcher_Run_StopsOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run() did not return within 2s of context cancellation")
+	}
+}
+
+func TestDispatcher_DispatchOnce_RecordsDispatchedMetric(t *testing.T) {
+	j := newJob()
+	fs := &fakeStore{due: []*job.Job{j}}
+	fq := &fakeQueue{}
+	d := dispatcher.New(fs, fq, dispatcher.Config{BatchSize: 10}, testLogger())
+
+	before := testutil.ToFloat64(metrics.JobsDispatched.WithLabelValues(j.Type))
+	d.DispatchOnce(context.Background())
+	after := testutil.ToFloat64(metrics.JobsDispatched.WithLabelValues(j.Type))
+
+	if after-before != 1 {
+		t.Errorf("JobsDispatched delta = %v, want 1", after-before)
+	}
+}
+
+func TestDispatcher_ReconcileOnce_RecordsReconciledMetric(t *testing.T) {
+	j := newJob()
+	fs := &fakeStore{stale: []*job.Job{j}}
+	d := dispatcher.New(fs, &fakeQueue{}, dispatcher.Config{BatchSize: 10, StaleAfter: 5 * time.Minute}, testLogger())
+
+	before := testutil.ToFloat64(metrics.JobsReconciled.WithLabelValues(j.Type))
+	d.ReconcileOnce(context.Background())
+	after := testutil.ToFloat64(metrics.JobsReconciled.WithLabelValues(j.Type))
+
+	if after-before != 1 {
+		t.Errorf("JobsReconciled delta = %v, want 1", after-before)
 	}
 }

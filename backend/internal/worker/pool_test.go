@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/abdullah-zubair/jobqueue/internal/job"
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 	"github.com/abdullah-zubair/jobqueue/internal/worker"
@@ -131,7 +133,11 @@ func (f *fakeStore) List(context.Context, store.ListFilter) (store.ListResult, e
 
 func (f *fakeStore) ClaimDue(context.Context, int) ([]*job.Job, error) { return nil, nil }
 
-func (f *fakeStore) Cancel(context.Context, uuid.UUID) error { return nil }
+func (f *fakeStore) Cancel(context.Context, uuid.UUID) (*job.Job, error) { return nil, nil }
+
+func (f *fakeStore) Reactivate(context.Context, uuid.UUID) (*job.Job, error) {
+	return nil, store.ErrNotFound
+}
 
 func (f *fakeStore) ReclaimStale(context.Context, time.Duration, int) ([]*job.Job, error) {
 	return nil, nil
@@ -452,5 +458,61 @@ func TestPool_Run_ProcessesDeliveredMessage(t *testing.T) {
 
 	if !fs.hasCall("Complete") {
 		t.Error("Complete was not called")
+	}
+}
+
+func TestPool_Process_RecordsCompletedMetric(t *testing.T) {
+	j := job.New("metrics_test_completed", json.RawMessage(`{}`))
+	fs := newFakeStore(j)
+	registry := job.NewRegistry()
+	registry.Register("metrics_test_completed", handlerFunc(func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return json.RawMessage(`{}`), nil
+	}))
+
+	before := testutil.ToFloat64(metrics.JobsCompleted.WithLabelValues(j.Type))
+	p := worker.New(fs, &fakeQueue{}, registry, "worker-1", testConfig(), testLogger())
+	p.Process(context.Background(), queue.Message{ID: "1-0", JobID: j.ID.String()})
+	after := testutil.ToFloat64(metrics.JobsCompleted.WithLabelValues(j.Type))
+
+	if after-before != 1 {
+		t.Errorf("JobsCompleted delta = %v, want 1", after-before)
+	}
+}
+
+func TestPool_Process_RecordsRetriedMetric(t *testing.T) {
+	j := job.New("metrics_test_retried", json.RawMessage(`{}`))
+	j.MaxAttempts = 3
+	fs := newFakeStore(j)
+	registry := job.NewRegistry()
+	registry.Register("metrics_test_retried", handlerFunc(func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return nil, errors.New("transient failure")
+	}))
+
+	before := testutil.ToFloat64(metrics.JobsRetried.WithLabelValues(j.Type))
+	p := worker.New(fs, &fakeQueue{}, registry, "worker-1", testConfig(), testLogger())
+	p.Process(context.Background(), queue.Message{ID: "1-0", JobID: j.ID.String()})
+	after := testutil.ToFloat64(metrics.JobsRetried.WithLabelValues(j.Type))
+
+	if after-before != 1 {
+		t.Errorf("JobsRetried delta = %v, want 1", after-before)
+	}
+}
+
+func TestPool_Process_RecordsDeadMetric(t *testing.T) {
+	j := job.New("metrics_test_dead", json.RawMessage(`{}`))
+	j.MaxAttempts = 1
+	fs := newFakeStore(j)
+	registry := job.NewRegistry()
+	registry.Register("metrics_test_dead", handlerFunc(func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return nil, errors.New("permanent failure")
+	}))
+
+	before := testutil.ToFloat64(metrics.JobsDead.WithLabelValues(j.Type))
+	p := worker.New(fs, &fakeQueue{}, registry, "worker-1", testConfig(), testLogger())
+	p.Process(context.Background(), queue.Message{ID: "1-0", JobID: j.ID.String()})
+	after := testutil.ToFloat64(metrics.JobsDead.WithLabelValues(j.Type))
+
+	if after-before != 1 {
+		t.Errorf("JobsDead delta = %v, want 1", after-before)
 	}
 }

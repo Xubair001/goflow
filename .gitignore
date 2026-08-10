@@ -6,7 +6,12 @@ coverage.*
 
 # Frontend
 /frontend/node_modules/
-/frontend/dist/
+
+# Frontend build output: only backend/internal/web/dist/index.html's
+# checked-in placeholder is tracked. Real builds (`make frontend-build`)
+# land here too but aren't committed -- CI/Docker regenerate them.
+/backend/internal/web/dist/assets/
+/backend/internal/web/dist/favicon.svg
 
 # Env
 .env

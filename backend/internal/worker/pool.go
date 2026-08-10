@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abdullah-zubair/jobqueue/internal/job"
+	"github.com/abdullah-zubair/jobqueue/internal/metrics"
 	"github.com/abdullah-zubair/jobqueue/internal/queue"
 	"github.com/abdullah-zubair/jobqueue/internal/store"
 )
@@ -197,8 +198,10 @@ func (p *Pool) Process(ctx context.Context, msg queue.Message) {
 		return
 	}
 
+	start := time.Now()
 	result, err := p.execute(ctx, handler, j.Payload)
 	if err != nil {
+		metrics.JobDuration.WithLabelValues(j.Type, metrics.OutcomeFailure).Observe(time.Since(start).Seconds())
 		if failErr := p.fail(ctx, j, err.Error(), logger); failErr != nil {
 			logger.Error("record job failure", "error", failErr)
 			return
@@ -206,11 +209,13 @@ func (p *Pool) Process(ctx context.Context, msg queue.Message) {
 		p.ack(ctx, msg)
 		return
 	}
+	metrics.JobDuration.WithLabelValues(j.Type, metrics.OutcomeSuccess).Observe(time.Since(start).Seconds())
 
 	if err := p.store.Complete(ctx, j.ID, result); err != nil {
 		logger.Error("complete job", "error", err)
 		return
 	}
+	metrics.JobsCompleted.WithLabelValues(j.Type).Inc()
 	logger.Info("job completed")
 	p.ack(ctx, msg)
 }
@@ -232,11 +237,19 @@ func (p *Pool) execute(ctx context.Context, h job.Handler, payload json.RawMessa
 func (p *Pool) fail(ctx context.Context, j *job.Job, errMsg string, logger *slog.Logger) error {
 	if j.ExhaustedRetries() {
 		logger.Warn("job exhausted retries, marking dead", "error", errMsg)
-		return p.store.Kill(ctx, j.ID, errMsg)
+		if err := p.store.Kill(ctx, j.ID, errMsg); err != nil {
+			return err
+		}
+		metrics.JobsDead.WithLabelValues(j.Type).Inc()
+		return nil
 	}
 	delay := Backoff(j.Attempts, p.cfg.RetryBaseDelay, p.cfg.RetryMaxDelay)
 	logger.Warn("job failed, scheduling retry", "error", errMsg, "retry_in", delay)
-	return p.store.Retry(ctx, j.ID, errMsg, time.Now().Add(delay))
+	if err := p.store.Retry(ctx, j.ID, errMsg, time.Now().Add(delay)); err != nil {
+		return err
+	}
+	metrics.JobsRetried.WithLabelValues(j.Type).Inc()
+	return nil
 }
 
 func (p *Pool) ack(ctx context.Context, msg queue.Message) {

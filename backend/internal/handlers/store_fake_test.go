@@ -66,7 +66,11 @@ func (f *fakeStore) Retry(context.Context, uuid.UUID, string, time.Time) error {
 
 func (f *fakeStore) Kill(context.Context, uuid.UUID, string) error { return nil }
 
-func (f *fakeStore) Cancel(context.Context, uuid.UUID) error { return nil }
+func (f *fakeStore) Cancel(context.Context, uuid.UUID) (*job.Job, error) { return nil, nil }
+
+func (f *fakeStore) Reactivate(context.Context, uuid.UUID) (*job.Job, error) {
+	return nil, store.ErrNotFound
+}
 
 func (f *fakeStore) ReclaimStale(context.Context, time.Duration, int) ([]*job.Job, error) {
 	return nil, nil
