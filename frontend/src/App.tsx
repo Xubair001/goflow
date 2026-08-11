@@ -72,28 +72,57 @@ export default function App() {
     void refreshJobs();
   }
 
+  const closeDetail = useCallback(() => setSelected(null), []);
+
+  // Escape closes the detail panel, matching the slide-over convention used
+  // by GitHub/Linear/Vercel for this exact pattern.
+  useEffect(() => {
+    if (!selected) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeDetail();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selected, closeDetail]);
+
   const stats = liveStats ?? initialStats;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-text-primary">GoFlow</h1>
-        <span className="flex items-center gap-1.5 text-sm text-text-secondary">
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-10 border-b border-border-hairline bg-surface-card/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-primary text-sm font-bold text-accent-primary-foreground">
+              G
+            </span>
+            <div>
+              <h1 className="text-base leading-tight font-semibold text-text-primary">GoFlow</h1>
+              <p className="text-xs leading-tight text-text-muted">Job queue dashboard</p>
+            </div>
+          </div>
           <span
-            className={`h-2 w-2 rounded-full ${connected ? "bg-status-good" : "bg-status-neutral"}`}
-            aria-hidden="true"
-          />
-          {connected ? "Live" : "Connecting…"}
-        </span>
+            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              connected ? "bg-status-good/10 text-status-good" : "bg-status-neutral/10 text-text-secondary"
+            }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-status-good" : "bg-status-neutral"}`}
+              aria-hidden="true"
+            />
+            {connected ? "Live" : "Connecting…"}
+          </span>
+        </div>
       </header>
 
-      <StatsRow stats={stats} />
+      <main className="mx-auto max-w-6xl space-y-5 p-4">
+        <StatsRow stats={stats} />
 
-      <JobForm onCreated={refreshJobs} />
+        <JobForm onCreated={refreshJobs} />
 
-      {loadError && <p className="text-sm text-status-critical">{loadError}</p>}
+        {loadError && (
+          <p className="rounded-lg bg-status-critical/10 px-3 py-2 text-sm text-status-critical">{loadError}</p>
+        )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
         <JobTable
           jobs={jobs}
           total={total}
@@ -103,12 +132,24 @@ export default function App() {
           onStatusFilterChange={handleStatusFilterChange}
           onPageChange={setOffset}
           onSelect={setSelected}
+          onJobChanged={refreshJobs}
           selectedId={selected?.id}
         />
-        {selected && (
-          <JobDetail job={selected} onChanged={handleJobChanged} onClose={() => setSelected(null)} />
-        )}
-      </div>
+      </main>
+
+      {selected && (
+        <div className="fixed inset-0 z-20 flex justify-end">
+          <button
+            type="button"
+            aria-label="Close job detail"
+            onClick={closeDetail}
+            className="absolute inset-0 animate-[fade-in_150ms_ease-out] bg-slate-950/40"
+          />
+          <div className="relative flex h-full w-full max-w-md animate-[slide-in_200ms_ease-out] flex-col overflow-y-auto border-l border-border-hairline bg-surface-card p-5 shadow-xl">
+            <JobDetail job={selected} onChanged={handleJobChanged} onClose={closeDetail} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

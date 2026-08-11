@@ -5,6 +5,7 @@ import type {
   JobStatus,
   ListJobsResponse,
   QueueStats,
+  UploadResponse,
 } from "./types";
 
 // ApiRequestError carries the server's structured error code/message
@@ -38,6 +39,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T;
   }
   return (await res.json()) as T;
+}
+
+// Deliberately not routed through request(): that helper always sends
+// Content-Type: application/json, but a multipart body needs the browser
+// to set Content-Type itself (with the boundary it picked), so this must
+// not set that header at all.
+async function upload(path: string, file: File): Promise<UploadResponse> {
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(path, { method: "POST", body: form });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      body?.error.code ?? "unknown_error",
+      body?.error.message ?? `upload failed with status ${res.status}`,
+    );
+  }
+  return (await res.json()) as UploadResponse;
 }
 
 export interface ListJobsParams {
@@ -75,5 +95,9 @@ export const api = {
 
   queueStats(): Promise<QueueStats> {
     return request("/api/v1/queue/stats");
+  },
+
+  uploadFile(file: File): Promise<UploadResponse> {
+    return upload("/api/v1/uploads", file);
   },
 };

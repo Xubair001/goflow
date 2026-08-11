@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"strings"
 
 	"golang.org/x/image/draw"
 
@@ -26,9 +27,13 @@ const ImageResizeJobType = "resize_image"
 // read, so an oversized or malicious source_url can't exhaust worker memory.
 const defaultMaxImageBytes = 20 << 20 // 20 MiB
 
-// ImageResizePayload is the resize_image job's input.
+// ImageResizePayload is the resize_image job's input. Exactly one of
+// SourceURL or UploadID should be set: UploadID refers to a file the
+// dashboard uploaded via POST /api/v1/uploads, which takes priority if
+// both are present.
 type ImageResizePayload struct {
 	SourceURL string `json:"source_url"`
+	UploadID  string `json:"upload_id"`
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 }
@@ -57,6 +62,13 @@ type ImageResizeResult struct {
 type ImageResizeHandler struct {
 	Client   *http.Client
 	MaxBytes int64
+	// UploadBaseURL resolves an UploadID to a fetchable URL: the worker
+	// runs in its own process (its own container, in a Docker deployment),
+	// so it can't reach the apiserver the way the browser that uploaded
+	// the file did (e.g. "localhost" means something different to each).
+	// This must be a URL the worker itself can reach the apiserver by --
+	// see config.Worker.APIServerURL.
+	UploadBaseURL string
 }
 
 var _ job.Handler = (*ImageResizeHandler)(nil)
@@ -67,14 +79,15 @@ func (h *ImageResizeHandler) Execute(ctx context.Context, payload json.RawMessag
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return nil, fmt.Errorf("handlers: decode image resize payload: %w", err)
 	}
-	if p.SourceURL == "" {
-		return nil, errors.New("handlers: image resize payload missing \"source_url\"")
+	sourceURL, err := h.resolveSource(p)
+	if err != nil {
+		return nil, err
 	}
 	if p.Width <= 0 || p.Height <= 0 {
 		return nil, errors.New("handlers: image resize width/height must be positive")
 	}
 
-	data, err := h.fetch(ctx, p.SourceURL)
+	data, err := h.fetch(ctx, sourceURL)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +113,22 @@ func (h *ImageResizeHandler) Execute(ctx context.Context, payload json.RawMessag
 		OriginalSize: len(data),
 		ResizedSize:  buf.Len(),
 	})
+}
+
+// resolveSource picks UploadID over SourceURL when both are present, since
+// a dashboard upload is the common case and shouldn't require clearing a
+// stale source_url field.
+func (h *ImageResizeHandler) resolveSource(p ImageResizePayload) (string, error) {
+	if p.UploadID != "" {
+		if h.UploadBaseURL == "" {
+			return "", errors.New("handlers: image resize got an upload_id but no UploadBaseURL is configured")
+		}
+		return strings.TrimSuffix(h.UploadBaseURL, "/") + "/api/v1/uploads/" + p.UploadID, nil
+	}
+	if p.SourceURL != "" {
+		return p.SourceURL, nil
+	}
+	return "", errors.New(`handlers: image resize payload needs "upload_id" or "source_url"`)
 }
 
 func (h *ImageResizeHandler) fetch(ctx context.Context, url string) ([]byte, error) {

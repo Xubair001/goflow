@@ -25,6 +25,7 @@ type Server struct {
 	store       store.Store
 	registry    *job.Registry
 	broadcaster *broadcaster
+	uploads     *uploadStore
 	logger      *slog.Logger
 	db          pinger
 	redis       pinger
@@ -53,6 +54,7 @@ func NewServer(cfg Config) *Server {
 		store:       cfg.Store,
 		registry:    cfg.Registry,
 		broadcaster: newBroadcaster(),
+		uploads:     newUploadStore(),
 		logger:      cfg.Logger,
 		db:          cfg.DB,
 		redis:       cfg.Redis,
@@ -95,6 +97,8 @@ func (s *Server) Routes() http.Handler {
 		})
 		r.Get("/queue/stats", s.handleQueueStats)
 		r.Get("/events", s.handleEvents)
+		r.Post("/uploads", s.handleUpload)
+		r.Get("/uploads/{id}", s.handleGetUpload)
 	})
 
 	// Dashboard last: chi matches the more specific routes above first

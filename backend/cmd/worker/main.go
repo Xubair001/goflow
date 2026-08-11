@@ -62,11 +62,12 @@ func run() error {
 
 	registry := job.NewRegistry()
 	handlers.Register(registry, handlers.Deps{
-		Store:        jobStore,
-		SMTPAddr:     cfg.SMTPAddr,
-		SMTPFrom:     cfg.SMTPFrom,
-		SMTPUsername: cfg.SMTPUsername,
-		SMTPPassword: cfg.SMTPPassword,
+		Store:         jobStore,
+		SMTPAddr:      cfg.SMTPAddr,
+		SMTPFrom:      cfg.SMTPFrom,
+		SMTPUsername:  cfg.SMTPUsername,
+		SMTPPassword:  cfg.SMTPPassword,
+		UploadBaseURL: cfg.APIServerURL,
 	})
 
 	go metrics.ServeUntil(ctx, cfg.MetricsAddr, logger)

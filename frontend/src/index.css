@@ -1,52 +1,67 @@
 @import "tailwindcss";
 
 /*
- * Design tokens: validated palette (see dataviz skill), status colors
+ * Design tokens: slate neutrals + a monochrome brand accent (the
+ * shadcn/Linear/Vercel convention -- primary actions never borrow a status
+ * hue). Status colors are validated via the dataviz skill's
+ * scripts/validate_palette.js (CVD-safe adjacent pairs, WCAG contrast) and
  * reserved for job status only, never reused as generic accents.
  */
 :root {
   color-scheme: light;
 
-  --surface-page: #f9f9f7;
-  --surface-card: #fcfcfb;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #898781;
-  --border-hairline: #e1e0d9;
+  --surface-page: #f8fafc;
+  --surface-card: #ffffff;
+  --surface-sunken: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --border-hairline: #e2e8f0;
 
-  --status-running: #2a78d6; /* categorical blue: "active", not a reserved status role */
-  --status-good: #0ca30c;
-  --status-warning: #fab219;
-  --status-critical: #d03b3b;
-  --status-neutral: #898781;
+  --accent-primary: #0f172a;
+  --accent-primary-foreground: #ffffff;
+
+  --status-running: #2563eb;
+  --status-good: #0d9488;
+  --status-warning: #ca8a04;
+  --status-critical: #dc2626;
+  --status-neutral: #64748b;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
 
-    --surface-page: #0d0d0d;
-    --surface-card: #1a1a19;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --border-hairline: #2c2c2a;
+    --surface-page: #020617;
+    --surface-card: #0f172a;
+    --surface-sunken: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border-hairline: #334155;
 
-    --status-running: #3987e5;
-    --status-good: #0ca30c;
-    --status-warning: #fab219;
-    --status-critical: #e66767;
-    --status-neutral: #898781;
+    --accent-primary: #f8fafc;
+    --accent-primary-foreground: #0f172a;
+
+    --status-running: #2563eb;
+    --status-good: #0d9488;
+    --status-warning: #c2820a;
+    --status-critical: #dc2626;
+    --status-neutral: #94a3b8;
   }
 }
 
 @theme {
   --color-surface-page: var(--surface-page);
   --color-surface-card: var(--surface-card);
+  --color-surface-sunken: var(--surface-sunken);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-border-hairline: var(--border-hairline);
+
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-primary-foreground: var(--accent-primary-foreground);
 
   --color-status-running: var(--status-running);
   --color-status-good: var(--status-good);
@@ -54,7 +69,8 @@
   --color-status-critical: var(--status-critical);
   --color-status-neutral: var(--status-neutral);
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 body {
@@ -65,4 +81,65 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Referenced by App.tsx's job-detail slide-over via arbitrary animate-[…]. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * Registered via @utility (not plain classes in @layer components) so they
+ * can be composed with @apply below -- Tailwind v4 only allows @apply to
+ * reference utilities, not arbitrary custom classes.
+ */
+@utility btn {
+  @apply inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3.5 py-2
+    text-sm font-medium transition
+    disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility tab-btn {
+  @apply rounded-md px-3 py-1.5 text-sm font-medium transition-colors;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-border-hairline bg-surface-card shadow-sm shadow-black/[0.04];
+  }
+
+  .btn-primary {
+    @apply btn bg-accent-primary text-accent-primary-foreground shadow-sm hover:opacity-90 active:opacity-80;
+  }
+  .btn-secondary {
+    @apply btn border border-border-hairline bg-surface-card text-text-primary hover:bg-surface-sunken;
+  }
+  .btn-danger {
+    @apply btn border border-status-critical/30 bg-surface-card text-status-critical hover:bg-status-critical/10;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-border-hairline bg-surface-sunken px-3 py-2 text-sm
+      text-text-primary placeholder:text-text-muted
+      focus:border-accent-primary focus:bg-surface-card focus:outline-none focus:ring-2 focus:ring-accent-primary/15;
+  }
+  .field-label {
+    @apply mb-1.5 block text-xs font-medium tracking-wide text-text-secondary uppercase;
+  }
+
+  .tab-btn-active {
+    @apply tab-btn bg-surface-card text-text-primary shadow-sm;
+  }
+  .tab-btn-inactive {
+    @apply tab-btn text-text-secondary hover:text-text-primary;
+  }
 }

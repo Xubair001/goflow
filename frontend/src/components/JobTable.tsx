@@ -1,6 +1,9 @@
-import type { Job, JobStatus } from "../api/types";
-import { JOB_STATUSES } from "../api/types";
+import { useState, type MouseEvent } from "react";
+import type { Job, JobStatus, JobType } from "../api/types";
+import { JOB_STATUSES, JOB_TYPE_LABELS } from "../api/types";
 import { StatusBadge } from "./StatusBadge";
+import { api } from "../api/client";
+import { formatRelativeTime } from "../lib/time";
 
 interface JobTableProps {
   jobs: Job[];
@@ -11,7 +14,54 @@ interface JobTableProps {
   onStatusFilterChange: (status: JobStatus | "") => void;
   onPageChange: (offset: number) => void;
   onSelect: (job: Job) => void;
+  onJobChanged: () => void;
   selectedId?: string;
+}
+
+function RowActions({ job, onJobChanged }: { job: Job; onJobChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const canRetry = job.status === "dead" || job.status === "cancelled";
+  const canCancel = job.status === "pending" || job.status === "queued";
+
+  async function run(e: MouseEvent, action: (id: string) => Promise<Job>) {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      await action(job.id);
+      onJobChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!canRetry && !canCancel) {
+    return <span className="text-text-muted">—</span>;
+  }
+
+  return (
+    <div className="flex gap-1.5">
+      {canRetry && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={(e) => run(e, api.retryJob)}
+          className="btn-secondary btn-sm"
+        >
+          Retry
+        </button>
+      )}
+      {canCancel && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={(e) => run(e, api.cancelJob)}
+          className="btn-danger btn-sm"
+        >
+          Cancel
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function JobTable({
@@ -23,19 +73,20 @@ export function JobTable({
   onStatusFilterChange,
   onPageChange,
   onSelect,
+  onJobChanged,
   selectedId,
 }: JobTableProps) {
   const page = Math.floor(offset / limit) + 1;
   const pageCount = Math.max(1, Math.ceil(total / limit));
 
   return (
-    <div className="rounded-lg border border-border-hairline bg-surface-card">
-      <div className="flex items-center justify-between border-b border-border-hairline p-3">
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between border-b border-border-hairline px-4 py-3">
         <h2 className="text-sm font-semibold text-text-primary">Jobs</h2>
         <select
           value={statusFilter}
           onChange={(e) => onStatusFilterChange(e.target.value as JobStatus | "")}
-          className="rounded border border-border-hairline bg-surface-page px-2 py-1 text-sm text-text-primary"
+          className="field w-auto py-1.5"
         >
           <option value="">All statuses</option>
           {JOB_STATUSES.map((s) => (
@@ -46,47 +97,66 @@ export function JobTable({
         </select>
       </div>
 
-      <table className="w-full text-left text-sm">
-        <thead className="text-text-muted">
-          <tr className="border-b border-border-hairline">
-            <th className="px-3 py-2 font-normal">Type</th>
-            <th className="px-3 py-2 font-normal">Status</th>
-            <th className="px-3 py-2 font-normal">Attempts</th>
-            <th className="px-3 py-2 font-normal">Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.length === 0 && (
-            <tr>
-              <td colSpan={4} className="px-3 py-6 text-center text-text-muted">
-                No jobs match this filter.
-              </td>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-border-hairline bg-surface-sunken text-text-muted">
+              <th className="px-4 py-2 text-xs font-medium tracking-wide uppercase">Job</th>
+              <th className="px-4 py-2 text-xs font-medium tracking-wide uppercase">Status</th>
+              <th className="px-4 py-2 text-xs font-medium tracking-wide uppercase">Attempts</th>
+              <th className="px-4 py-2 text-xs font-medium tracking-wide uppercase">Created</th>
+              <th className="px-4 py-2 text-xs font-medium tracking-wide uppercase">Actions</th>
             </tr>
-          )}
-          {jobs.map((job) => (
-            <tr
-              key={job.id}
-              onClick={() => onSelect(job)}
-              className={`cursor-pointer border-b border-border-hairline last:border-0 hover:bg-surface-page ${
-                selectedId === job.id ? "bg-surface-page" : ""
-              }`}
-            >
-              <td className="px-3 py-2 font-mono text-text-primary">{job.type}</td>
-              <td className="px-3 py-2">
-                <StatusBadge status={job.status} />
-              </td>
-              <td className="px-3 py-2 tabular-nums text-text-secondary">
-                {job.attempts}/{job.max_attempts}
-              </td>
-              <td className="px-3 py-2 tabular-nums text-text-secondary">
-                {new Date(job.created_at).toLocaleString()}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {jobs.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-text-muted">
+                  No jobs match this filter.
+                </td>
+              </tr>
+            )}
+            {jobs.map((job) => {
+              const retried = job.attempts > 1 && job.status !== "dead";
+              return (
+                <tr
+                  key={job.id}
+                  onClick={() => onSelect(job)}
+                  className={`cursor-pointer border-b border-border-hairline last:border-0 hover:bg-surface-sunken ${
+                    selectedId === job.id ? "bg-surface-sunken" : ""
+                  }`}
+                >
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-text-primary">
+                      {JOB_TYPE_LABELS[job.type as JobType] ?? job.type}
+                    </div>
+                    <div className="font-mono text-xs text-text-muted">{job.id.slice(0, 8)}</div>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StatusBadge status={job.status} />
+                  </td>
+                  <td className="px-4 py-2.5 tabular-nums">
+                    <span className={retried ? "font-medium text-status-warning" : "text-text-secondary"}>
+                      {job.attempts}/{job.max_attempts}
+                    </span>
+                  </td>
+                  <td
+                    className="px-4 py-2.5 whitespace-nowrap text-text-secondary"
+                    title={new Date(job.created_at).toLocaleString()}
+                  >
+                    {formatRelativeTime(job.created_at)}
+                  </td>
+                  <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    <RowActions job={job} onJobChanged={onJobChanged} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-      <div className="flex items-center justify-between p-3 text-sm text-text-secondary">
+      <div className="flex items-center justify-between px-4 py-3 text-sm text-text-secondary">
         <span>
           Page {page} of {pageCount} ({total} total)
         </span>
@@ -95,7 +165,7 @@ export function JobTable({
             type="button"
             disabled={offset === 0}
             onClick={() => onPageChange(Math.max(0, offset - limit))}
-            className="rounded border border-border-hairline px-2 py-1 disabled:opacity-40"
+            className="btn-secondary btn-sm"
           >
             Previous
           </button>
@@ -103,7 +173,7 @@ export function JobTable({
             type="button"
             disabled={offset + limit >= total}
             onClick={() => onPageChange(offset + limit)}
-            className="rounded border border-border-hairline px-2 py-1 disabled:opacity-40"
+            className="btn-secondary btn-sm"
           >
             Next
           </button>

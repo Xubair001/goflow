@@ -9,9 +9,9 @@ interface StatTileProps {
 // for aligned columns, not a standalone display number).
 export function StatTile({ label, value, colorClassName }: StatTileProps) {
   return (
-    <div className="rounded-lg border border-border-hairline bg-surface-card p-4">
-      <p className="text-sm text-text-secondary">{label}</p>
-      <p className={`mt-1 text-3xl font-semibold ${colorClassName ?? "text-text-primary"}`}>
+    <div className="card p-4">
+      <p className="field-label !mb-0">{label}</p>
+      <p className={`mt-1.5 text-3xl font-semibold ${colorClassName ?? "text-text-primary"}`}>
         {value.toLocaleString()}
       </p>
     </div>

@@ -95,6 +95,9 @@ services:
       DATABASE_URL: postgres://jobqueue:jobqueue@postgres:5432/jobqueue?sslmode=disable
       REDIS_ADDR: redis:6379
       SMTP_ADDR: mailpit:1025
+      # "localhost" from inside the worker's own container isn't apiserver;
+      # the compose network's service name is.
+      APISERVER_URL: http://apiserver:8080
       LOG_ENV: production
     depends_on:
       postgres:

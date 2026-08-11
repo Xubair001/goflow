@@ -17,6 +17,9 @@ type Deps struct {
 	SMTPFrom     string
 	SMTPUsername string
 	SMTPPassword string
+	// UploadBaseURL lets ImageResizeHandler resolve a dashboard upload's
+	// ID to a URL it can fetch -- see ImageResizeHandler.UploadBaseURL.
+	UploadBaseURL string
 }
 
 // Register adds every built-in job type to reg.
@@ -29,7 +32,7 @@ func Register(reg *job.Registry, deps Deps) {
 		Username: deps.SMTPUsername,
 		Password: deps.SMTPPassword,
 	})
-	reg.Register(ImageResizeJobType, &ImageResizeHandler{Client: client})
+	reg.Register(ImageResizeJobType, &ImageResizeHandler{Client: client, UploadBaseURL: deps.UploadBaseURL})
 	reg.Register(CSVJobType, &CSVHandler{})
 	reg.Register(HTTPRequestJobType, &HTTPRequestHandler{Client: client})
 	reg.Register(ReportJobType, &ReportHandler{Store: deps.Store})

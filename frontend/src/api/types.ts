@@ -56,6 +56,11 @@ export interface ApiError {
   };
 }
 
+export interface UploadResponse {
+  id: string;
+  url: string;
+}
+
 // The built-in job types from backend/internal/handlers/registry.go. There's
 // no endpoint to discover these dynamically yet, so the submit form's type
 // dropdown is this fixed list -- update both sides if a handler is added.
@@ -68,6 +73,17 @@ export const JOB_TYPES = [
   "scheduled_task",
 ] as const;
 
+export type JobType = (typeof JOB_TYPES)[number];
+
+export const JOB_TYPE_LABELS: Record<JobType, string> = {
+  send_email: "Send email",
+  resize_image: "Resize image",
+  process_csv: "Process CSV",
+  make_http_request: "Make HTTP request",
+  generate_report: "Generate report",
+  scheduled_task: "Scheduled task",
+};
+
 export const JOB_STATUSES: JobStatus[] = [
   "pending",
   "queued",
@@ -76,3 +92,71 @@ export const JOB_STATUSES: JobStatus[] = [
   "dead",
   "cancelled",
 ];
+
+// Mirrors backend/internal/handlers -- one payload shape per job type,
+// matching the Go structs (SendEmailPayload etc.) field for field.
+
+export interface SendEmailPayload {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+export interface ResizeImagePayload {
+  source_url?: string;
+  upload_id?: string;
+  width: number;
+  height: number;
+}
+
+export interface ProcessCsvPayload {
+  csv_data: string;
+}
+
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export interface MakeHttpRequestPayload {
+  url: string;
+  method: HttpMethod;
+  body?: string;
+}
+
+export interface GenerateReportPayload {
+  failed_sample_size?: number;
+}
+
+export interface ScheduledTaskPayload {
+  message: string;
+  interval_seconds?: number;
+}
+
+export interface ColumnSummary {
+  name: string;
+  numeric: boolean;
+  count: number;
+  sum?: number;
+  min?: number;
+  max?: number;
+  average?: number;
+}
+
+export interface ProcessCsvResult {
+  row_count: number;
+  column_count: number;
+  columns: ColumnSummary[];
+}
+
+export interface ResizeImageResult {
+  width: number;
+  height: number;
+  format: string;
+  image_base64: string;
+  original_size_bytes: number;
+  resized_size_bytes: number;
+}
+
+export interface MakeHttpRequestResult {
+  status_code: number;
+  body: string;
+  truncated: boolean;
+}
