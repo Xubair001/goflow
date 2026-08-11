@@ -12,6 +12,7 @@ servers:
 tags:
   - name: jobs
   - name: queue
+  - name: uploads
 
 paths:
   /jobs:
@@ -147,6 +148,73 @@ paths:
               schema:
                 type: string
 
+  /uploads:
+    post:
+      tags: [uploads]
+      summary: Upload a file for use as job input
+      description: >
+        Accepts a PNG, JPEG, GIF, or WebP image (sniffed from content, not
+        the filename) up to 10 MiB. The returned id can be passed as
+        upload_id in a resize_image job's payload; the returned url fetches
+        the file back.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: File stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /uploads/{id}:
+    get:
+      tags: [uploads]
+      summary: Fetch a previously uploaded file
+      description: >
+        Returns the raw file bytes with its detected Content-Type. Uploads
+        are held in memory only and do not survive an apiserver restart.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The file
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   parameters:
     JobID:
@@ -260,6 +328,17 @@ components:
           type: integer
         Cancelled:
           type: integer
+
+    UploadResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          description: Relative URL; GET it to fetch the file back.
+          example: /api/v1/uploads/3fa85f64-5717-4562-b3fc-2c963f66afa6
 
     ErrorResponse:
       type: object
