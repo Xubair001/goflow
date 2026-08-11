@@ -3,16 +3,15 @@ package api
 import (
 	_ "embed"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 //go:embed openapi.yaml
 var openAPISpec []byte
 
-func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/yaml")
-	if _, err := w.Write(openAPISpec); err != nil {
-		s.logger.Error("write openapi spec", "error", err)
-	}
+func (s *Server) handleOpenAPISpec(c *gin.Context) {
+	c.Data(http.StatusOK, "application/yaml", openAPISpec)
 }
 
 // swaggerUIPage loads Swagger UI from a CDN rather than vendoring it: this
@@ -43,9 +42,6 @@ const swaggerUIPage = `<!DOCTYPE html>
 </html>
 `
 
-func (s *Server) handleSwaggerUI(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(swaggerUIPage)); err != nil {
-		s.logger.Error("write swagger ui page", "error", err)
-	}
+func (s *Server) handleSwaggerUI(c *gin.Context) {
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(swaggerUIPage))
 }

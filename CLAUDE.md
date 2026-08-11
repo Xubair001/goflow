@@ -15,7 +15,7 @@ exists, not aspirational.
 
 ## Architecture (target end-state)
 
-- `apiserver` — REST API (chi) + SSE live updates + serves the built React SPA. Writes job rows to
+- `apiserver` — REST API (Gin) + SSE live updates + serves the built React SPA. Writes job rows to
   Postgres; never talks to Redis directly.
 - `dispatcher` — polls Postgres for due/pending jobs using `SELECT ... FOR UPDATE SKIP LOCKED`,
   publishes claimed jobs to a Redis Stream. Also runs the reconciler: `XAUTOCLAIM`s idle pending
@@ -40,7 +40,7 @@ backend/
     worker/      pool, retry/backoff-with-jitter, graceful shutdown
     dispatcher/  dispatch loop + reconciler
     handlers/    job type implementations (email, imageresize, csv, report, httpcall, scheduled)
-    api/         chi router, HTTP handlers, middleware, error envelope, SSE broadcaster
+    api/         Gin router, HTTP handlers, middleware, error envelope, SSE broadcaster
     metrics/     Prometheus collectors
   migrations/    golang-migrate SQL files
   Dockerfile.{apiserver,worker,dispatcher}   multi-stage builds -> distroless

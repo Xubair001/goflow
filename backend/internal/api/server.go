@@ -7,10 +7,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/abdullah-zubair/jobqueue/internal/job"
@@ -31,6 +31,7 @@ type Server struct {
 	redis       pinger
 	corsOrigins []string
 	staticFS    fs.FS
+	debug       bool
 }
 
 // Config controls Server construction.
@@ -46,6 +47,10 @@ type Config struct {
 	// StaticFS serves the built dashboard at "/" (see internal/web). Nil
 	// skips mounting it — used by tests that only care about the API.
 	StaticFS fs.FS
+	// Debug enables Gin's debug mode (verbose route-registration output on
+	// startup). Mirrors config.APIServer.LogEnv == "development"; leave
+	// false in production.
+	Debug bool
 }
 
 // NewServer returns a Server ready to build routes and serve requests.
@@ -60,52 +65,65 @@ func NewServer(cfg Config) *Server {
 		redis:       cfg.Redis,
 		corsOrigins: cfg.CORSOrigins,
 		staticFS:    cfg.StaticFS,
+		debug:       cfg.Debug,
 	}
 }
 
 // Routes builds the full HTTP handler: middleware, health/metrics/docs
 // endpoints, and the versioned job queue API.
 func (s *Server) Routes() http.Handler {
-	r := chi.NewRouter()
+	if s.debug {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Recoverer)
+	r := gin.New()
+	r.Use(requestID())
 	r.Use(requestLogger(s.logger))
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: s.corsOrigins,
-		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodOptions},
-		AllowedHeaders: []string{"Content-Type"},
-		MaxAge:         300,
-	}))
+	r.Use(recovery(s.logger))
+	// Only registered when origins are configured: gin-contrib/cors panics
+	// on an empty/unset AllowOrigins (it treats that as a misconfiguration
+	// to catch early, not "allow nothing"), so skipping registration
+	// entirely is how "no cross-origin access" is expressed here instead.
+	if len(s.corsOrigins) > 0 {
+		r.Use(cors.New(cors.Config{
+			AllowOrigins: s.corsOrigins,
+			AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+			AllowHeaders: []string{"Content-Type"},
+			MaxAge:       300 * time.Second,
+		}))
+	}
 
-	r.Get("/healthz", s.handleHealthz)
-	r.Get("/readyz", s.handleReadyz)
-	r.Handle("/metrics", promhttp.Handler())
+	r.GET("/healthz", s.handleHealthz)
+	r.GET("/readyz", s.handleReadyz)
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	r.Get("/openapi.yaml", s.handleOpenAPISpec)
-	r.Get("/docs", s.handleSwaggerUI)
+	r.GET("/openapi.yaml", s.handleOpenAPISpec)
+	r.GET("/docs", s.handleSwaggerUI)
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Route("/jobs", func(r chi.Router) {
-			r.Post("/", s.handleCreateJob)
-			r.Get("/", s.handleListJobs)
-			r.Route("/{id}", func(r chi.Router) {
-				r.Get("/", s.handleGetJob)
-				r.Post("/retry", s.handleRetryJob)
-				r.Post("/cancel", s.handleCancelJob)
-			})
-		})
-		r.Get("/queue/stats", s.handleQueueStats)
-		r.Get("/events", s.handleEvents)
-		r.Post("/uploads", s.handleUpload)
-		r.Get("/uploads/{id}", s.handleGetUpload)
-	})
+	v1 := r.Group("/api/v1")
+	{
+		jobs := v1.Group("/jobs")
+		{
+			jobs.POST("", s.handleCreateJob)
+			jobs.GET("", s.handleListJobs)
+			jobs.GET("/:id", s.handleGetJob)
+			jobs.POST("/:id/retry", s.handleRetryJob)
+			jobs.POST("/:id/cancel", s.handleCancelJob)
+		}
+		v1.GET("/queue/stats", s.handleQueueStats)
+		v1.GET("/events", s.handleEvents)
+		v1.POST("/uploads", s.handleUpload)
+		v1.GET("/uploads/:id", s.handleGetUpload)
+	}
 
-	// Dashboard last: chi matches the more specific routes above first
-	// regardless of registration order, so this catch-all never shadows
-	// the API/health/docs routes.
+	// Dashboard last, via NoRoute rather than a registered wildcard: Gin's
+	// router rejects a literal catch-all pattern that would sit alongside
+	// the static routes above, and NoRoute is exactly "nothing else
+	// matched" regardless of registration order anyway.
 	if s.staticFS != nil {
-		r.Handle("/*", http.FileServer(http.FS(s.staticFS)))
+		r.NoRoute(gin.WrapH(http.FileServer(http.FS(s.staticFS))))
 	}
 
 	return r

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // event is one Server-Sent Event's "data:" field. There's only one kind of
@@ -64,36 +67,31 @@ func (b *broadcaster) subscriberCount() int {
 // handleEvents streams queue stats over Server-Sent Events. Clients should
 // still fetch /api/v1/queue/stats for their initial render and treat this
 // as a live update feed layered on top of it.
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "streaming not supported")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
+func (s *Server) handleEvents(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	// Flushed immediately, before the first event: otherwise a client
+	// waiting on the response headers (e.g. to confirm the connection
+	// opened) would block until the first stats snapshot ever publishes.
+	c.Status(http.StatusOK)
+	c.Writer.Flush()
 
 	ch := s.broadcaster.subscribe()
 	defer s.broadcaster.unsubscribe(ch)
 
-	for {
+	c.Stream(func(w io.Writer) bool {
 		select {
-		case <-r.Context().Done():
-			return
+		case <-c.Request.Context().Done():
+			return false
 		case evt, ok := <-ch:
 			if !ok {
-				return
+				return false
 			}
-			if _, err := fmt.Fprintf(w, "event: stats\ndata: %s\n\n", evt.Data); err != nil {
-				return
-			}
-			flusher.Flush()
+			_, err := fmt.Fprintf(w, "event: stats\ndata: %s\n\n", evt.Data)
+			return err == nil
 		}
-	}
+	})
 }
 
 // RunEventsPoller periodically publishes queue stats to connected SSE
