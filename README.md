@@ -12,7 +12,7 @@ shutdown) end to end, not just syntax.
 ```
                  ┌────────────────────┐
    HTTP clients →│   API Server (Go)  │→ writes job row → PostgreSQL (source of truth)
-   React SPA     │  chi + REST + SSE  │
+   React SPA     │  Gin + REST + SSE  │
                  └─────────┬──────────┘
                            │
                  ┌─────────▼──────────┐
@@ -35,7 +35,7 @@ Postgres row stuck `running` past its lease — so a crashed worker never silent
 
 ## Stack
 
-Go 1.26, PostgreSQL (`pgx`), Redis Streams (`go-redis`), chi router, `log/slog`, Prometheus metrics,
+Go 1.26, PostgreSQL (`pgx`), Redis Streams (`go-redis`), Gin router, `log/slog`, Prometheus metrics,
 React + Vite + TypeScript + Tailwind for the dashboard, Docker Compose for local orchestration.
 
 ## Quick start

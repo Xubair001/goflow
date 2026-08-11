@@ -77,6 +77,7 @@ func run() error {
 		Logger:      logger,
 		CORSOrigins: cfg.CORSOrigins,
 		StaticFS:    staticFS,
+		Debug:       cfg.LogEnv == "development",
 	})
 
 	go srv.RunEventsPoller(ctx, cfg.EventsPollInterval)

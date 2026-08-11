@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -59,23 +59,23 @@ type uploadResponse struct {
 	URL string `json:"url"`
 }
 
-func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
-	if err := r.ParseMultipartForm(maxUploadBytes); err != nil { //nolint:gosec // bounded above via http.MaxBytesReader
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "upload too large or malformed")
+func (s *Server) handleUpload(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes)
+	if err := c.Request.ParseMultipartForm(maxUploadBytes); err != nil { //nolint:gosec // bounded above via http.MaxBytesReader
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "upload too large or malformed")
 		return
 	}
 
-	file, _, err := r.FormFile("file")
+	file, _, err := c.Request.FormFile("file")
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, `missing "file" field`)
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, `missing "file" field`)
 		return
 	}
 	defer func() { _ = file.Close() }()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "failed to read upload")
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "failed to read upload")
 		return
 	}
 
@@ -83,25 +83,25 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// or form field: http.DetectContentType looks at the actual bytes.
 	contentType := http.DetectContentType(data)
 	if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/gif" && contentType != "image/webp" {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "only PNG, JPEG, GIF, or WebP images are supported")
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "only PNG, JPEG, GIF, or WebP images are supported")
 		return
 	}
 
 	id := s.uploads.put(data, contentType)
 	s.logger.Info("file uploaded", "upload_id", id, "content_type", contentType, "bytes", len(data))
-	writeJSON(w, s.logger, http.StatusCreated, uploadResponse{ID: id, URL: "/api/v1/uploads/" + id})
+	c.JSON(http.StatusCreated, uploadResponse{ID: id, URL: "/api/v1/uploads/" + id})
 }
 
-func (s *Server) handleGetUpload(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
+func (s *Server) handleGetUpload(c *gin.Context) {
+	id := c.Param("id")
 	f, ok := s.uploads.get(id)
 	if !ok {
-		writeError(w, s.logger, http.StatusNotFound, codeNotFound, "upload not found")
+		writeError(c, http.StatusNotFound, codeNotFound, "upload not found")
 		return
 	}
-	w.Header().Set("Content-Type", f.contentType)
-	w.Header().Set("Cache-Control", "private, max-age=3600")
-	if _, err := w.Write(f.data); err != nil {
+	c.Header("Content-Type", f.contentType)
+	c.Header("Cache-Control", "private, max-age=3600")
+	if _, err := c.Writer.Write(f.data); err != nil {
 		s.logger.Error("write upload response", "upload_id", id, "error", err)
 	}
 }
