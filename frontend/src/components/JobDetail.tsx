@@ -46,11 +46,14 @@ function ResizeImageOutput({ job, result }: { job: Job; result: ResizeImageResul
           Download image
         </DownloadButton>
       </div>
-      <img
-        src={`data:image/${result.format};base64,${result.image_base64}`}
-        alt="Resize result"
-        className="max-h-64 rounded-lg border border-border-hairline"
-      />
+      <div className="flex h-48 w-48 items-center justify-center rounded-lg border border-border-hairline bg-surface-sunken p-2">
+        <img
+          src={`data:image/${result.format};base64,${result.image_base64}`}
+          alt="Resize result"
+          className="h-full w-full object-contain"
+          style={result.width < 192 || result.height < 192 ? { imageRendering: "pixelated" } : undefined}
+        />
+      </div>
       <p className="mt-1.5 text-xs text-text-muted">
         {result.width}×{result.height} · {result.resized_size_bytes.toLocaleString()} bytes (from{" "}
         {result.original_size_bytes.toLocaleString()})

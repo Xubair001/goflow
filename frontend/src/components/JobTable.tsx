@@ -18,7 +18,15 @@ interface JobTableProps {
   selectedId?: string;
 }
 
-function RowActions({ job, onJobChanged }: { job: Job; onJobChanged: () => void }) {
+function RowActions({
+  job,
+  onSelect,
+  onJobChanged,
+}: {
+  job: Job;
+  onSelect: (job: Job) => void;
+  onJobChanged: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const canRetry = job.status === "dead" || job.status === "cancelled";
   const canCancel = job.status === "pending" || job.status === "queued";
@@ -34,12 +42,18 @@ function RowActions({ job, onJobChanged }: { job: Job; onJobChanged: () => void 
     }
   }
 
-  if (!canRetry && !canCancel) {
-    return <span className="text-text-muted">—</span>;
-  }
-
   return (
     <div className="flex gap-1.5">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect(job);
+        }}
+        className="btn-secondary btn-sm"
+      >
+        View
+      </button>
       {canRetry && (
         <button
           type="button"
@@ -147,7 +161,7 @@ export function JobTable({
                     {formatRelativeTime(job.created_at)}
                   </td>
                   <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                    <RowActions job={job} onJobChanged={onJobChanged} />
+                    <RowActions job={job} onSelect={onSelect} onJobChanged={onJobChanged} />
                   </td>
                 </tr>
               );
