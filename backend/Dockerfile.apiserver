@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+#
+# Build context is the repo root (see docker-compose.yml), since this is
+# the one image that needs both frontend/ and backend/.
+
+# --- Stage 1: build the React dashboard ---
+# glibc (not -alpine/musl): Vite 8's Rolldown bundler ships native
+# platform-specific bindings (@rolldown/binding-*), and the musl variant
+# isn't reliably resolvable via `npm ci` against a lockfile generated on a
+# glibc host. This stage is discarded after the build (only dist/ is
+# copied forward), so the larger base costs nothing in the final image.
+FROM node:20-bookworm-slim AS frontend-build
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+# vite.config.ts's outDir is ../backend/internal/web/dist relative to here,
+# i.e. /backend/internal/web/dist in this stage's filesystem.
+RUN npm run build
+
+# --- Stage 2: build the Go binary, embedding the real dashboard ---
+FROM golang:1.26-alpine AS go-build
+WORKDIR /backend
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ .
+# Overwrites the placeholder committed to internal/web/dist with the real
+# build, so go:embed picks up the actual app instead of the "not built yet"
+# page.
+COPY --from=frontend-build /backend/internal/web/dist ./internal/web/dist
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/apiserver ./cmd/apiserver
+
+# --- Stage 3: minimal runtime ---
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=go-build /out/apiserver /apiserver
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/apiserver"]

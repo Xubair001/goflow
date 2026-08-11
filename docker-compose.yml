@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: jobqueue
       POSTGRES_DB: jobqueue
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,12 +18,91 @@ services:
   redis:
     image: redis:8-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Local SMTP sink for the send_email handler. Web UI at localhost:8025
+  # shows everything workers "send" without any real mail leaving the box.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "${MAILPIT_WEB_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+
+  # One-shot: applies migrations, then exits. apiserver/worker/dispatcher
+  # wait on it via service_completed_successfully rather than racing it.
+  migrate:
+    image: migrate/migrate:v4.19.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command:
+      [
+        "-path", "/migrations",
+        "-database", "postgres://jobqueue:jobqueue@postgres:5432/jobqueue?sslmode=disable",
+        "up",
+      ]
+
+  apiserver:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.apiserver
+    environment:
+      DATABASE_URL: postgres://jobqueue:jobqueue@postgres:5432/jobqueue?sslmode=disable
+      REDIS_ADDR: redis:6379
+      LOG_ENV: production
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  dispatcher:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.dispatcher
+    environment:
+      DATABASE_URL: postgres://jobqueue:jobqueue@postgres:5432/jobqueue?sslmode=disable
+      REDIS_ADDR: redis:6379
+      LOG_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # No fixed host port published: unlike apiserver, nothing outside the
+  # compose network needs to reach a specific worker replica directly, and
+  # a fixed mapping would collide across replicas under
+  # `docker compose up --scale worker=N`.
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.worker
+    environment:
+      DATABASE_URL: postgres://jobqueue:jobqueue@postgres:5432/jobqueue?sslmode=disable
+      REDIS_ADDR: redis:6379
+      SMTP_ADDR: mailpit:1025
+      LOG_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
