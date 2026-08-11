@@ -160,3 +160,28 @@ export interface MakeHttpRequestResult {
   body: string;
   truncated: boolean;
 }
+
+export interface DeadJobBrief {
+  id: string;
+  type: string;
+  last_error: string;
+}
+
+export interface GenerateReportResult {
+  generated_at: string;
+  stats: QueueStats;
+  recent_dead_jobs: DeadJobBrief[];
+  summary: string;
+}
+
+export interface ScheduledTaskResult {
+  ran_at: string;
+  message: string;
+  next_job_id?: string;
+  next_run_at?: string;
+}
+
+export interface SendEmailResult {
+  sent_to: string;
+  sent_at: string;
+}

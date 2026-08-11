@@ -100,8 +100,11 @@ Run these from `backend/`, or use the Makefile targets from the repo root once o
   every frontend change.
 - `docker compose up`'s `migrate` service applies migrations once and exits; apiserver/dispatcher/
   worker wait on it via `service_completed_successfully`, not a fixed sleep.
-- The `send_email` handler points at `mailpit:1025` inside compose (`localhost:1025` outside it) --
-  open http://localhost:8025 to see mail workers "send" instead of it going anywhere real.
+- The `send_email` handler defaults to `mailpit:1025` inside compose (`localhost:1025` outside it) --
+  open http://localhost:8025 to see mail workers "send" instead of it going anywhere real. Set
+  `SMTP_ADDR`/`SMTP_FROM`/`SMTP_USERNAME`/`SMTP_PASSWORD` in `.env` (see `.env.example`) to point it at
+  a real provider's SMTP relay instead -- no code changes needed, since `net/smtp.SendMail` negotiates
+  STARTTLS automatically against any provider on the standard port 587.
 - `worker`/`dispatcher` expose `/metrics` + `/healthz` on `:9091`/`:9092` respectively (not published
   to the host in `docker-compose.yml`, since a fixed host port would collide under
   `docker compose up --scale worker=N`); `apiserver` folds its own `/metrics` into the main API port.

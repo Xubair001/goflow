@@ -25,7 +25,8 @@ type Worker struct {
 
 	// SMTP settings for the send_email handler. Defaults target a local
 	// Mailpit instance, which needs no auth -- leave SMTPUsername empty for
-	// that case.
+	// that case. Point these at a real provider's SMTP relay (see
+	// .env.example) to actually deliver mail instead of catching it locally.
 	SMTPAddr     string
 	SMTPFrom     string
 	SMTPUsername string

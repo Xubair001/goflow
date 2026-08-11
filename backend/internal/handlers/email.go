@@ -30,11 +30,14 @@ type EmailResult struct {
 	SentAt time.Time `json:"sent_at"`
 }
 
-// EmailHandler sends plain-text email via SMTP. It has no TLS/STARTTLS
-// support and no per-call cancellation (net/smtp.SendMail is synchronous
-// and ctx-unaware) — fine for relaying to a local dev SMTP sink like
-// Mailpit, but swap in a proper ctx-aware SMTP client before pointing this
-// at a real mail provider.
+// EmailHandler sends plain-text email via SMTP. net/smtp.SendMail
+// negotiates STARTTLS automatically when the server advertises it, so this
+// works unmodified against real providers on the standard submission port
+// 587 (Gmail, Outlook, SendGrid, Mailgun, SES, ...) with Username/Password
+// set to that provider's SMTP credentials -- not just the unauthenticated
+// local Mailpit sink used in dev. It does NOT support implicit-TLS-only
+// endpoints (e.g. port 465 with no STARTTLS), and has no per-call
+// cancellation since net/smtp.SendMail is synchronous and ctx-unaware.
 type EmailHandler struct {
 	// Addr is the SMTP server address, e.g. "localhost:1025".
 	Addr string
