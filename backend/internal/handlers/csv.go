@@ -16,9 +16,12 @@ import (
 // CSVJobType is the job.Registry key for CSVHandler.
 const CSVJobType = "process_csv"
 
-// CSVPayload is the process_csv job's input: raw CSV text with a header row.
+// CSVPayload is the process_csv job's input: raw CSV text with a header
+// row. When EmailTo is set, the computed summary is also emailed there via
+// Mailer -- e.g. "analyze this data and send me the results."
 type CSVPayload struct {
-	Data string `json:"csv_data"`
+	Data    string `json:"csv_data"`
+	EmailTo string `json:"email_to,omitempty"`
 }
 
 // ColumnSummary describes one CSV column. Sum/Min/Max/Average are nil for
@@ -34,16 +37,23 @@ type ColumnSummary struct {
 	Average *float64 `json:"average,omitempty"`
 }
 
-// CSVResult is the process_csv job's output.
+// CSVResult is the process_csv job's output. EmailedTo is set only when the
+// payload requested delivery and it succeeded.
 type CSVResult struct {
 	RowCount    int             `json:"row_count"`
 	ColumnCount int             `json:"column_count"`
 	Columns     []ColumnSummary `json:"columns"`
+	EmailedTo   string          `json:"emailed_to,omitempty"`
 }
 
 // CSVHandler parses CSV text and summarizes each column: row/column counts,
 // and for columns where every value parses as a number, min/max/sum/average.
-type CSVHandler struct{}
+// Mailer is optional -- leave it nil if send_email isn't configured; an
+// EmailTo request without one fails with a clear error instead of silently
+// no-op'ing.
+type CSVHandler struct {
+	Mailer *Mailer
+}
 
 var _ job.Handler = (*CSVHandler)(nil)
 
@@ -75,11 +85,37 @@ func (h *CSVHandler) Execute(ctx context.Context, payload json.RawMessage) (json
 		columns[i] = summarizeColumn(name, rows, i)
 	}
 
-	return json.Marshal(CSVResult{
+	result := CSVResult{
 		RowCount:    len(rows),
 		ColumnCount: len(header),
 		Columns:     columns,
-	})
+	}
+
+	if p.EmailTo != "" {
+		if h.Mailer == nil {
+			return nil, errors.New("handlers: csv analysis requested email delivery but no SMTP mailer is configured")
+		}
+		if err := h.Mailer.Send(p.EmailTo, "GoFlow CSV analysis", csvEmailBody(result)); err != nil {
+			return nil, fmt.Errorf("handlers: email csv analysis: %w", err)
+		}
+		result.EmailedTo = p.EmailTo
+	}
+
+	return json.Marshal(result)
+}
+
+func csvEmailBody(r CSVResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d rows, %d columns\n\n", r.RowCount, r.ColumnCount)
+	for _, c := range r.Columns {
+		if c.Numeric {
+			fmt.Fprintf(&b, "%s: count=%d sum=%.2f min=%.2f max=%.2f average=%.2f\n",
+				c.Name, c.Count, *c.Sum, *c.Min, *c.Max, *c.Average)
+		} else {
+			fmt.Fprintf(&b, "%s: count=%d (non-numeric)\n", c.Name, c.Count)
+		}
+	}
+	return b.String()
 }
 
 func summarizeColumn(name string, rows [][]string, col int) ColumnSummary {

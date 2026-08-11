@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 )
 
 func decodeCSVResult(t *testing.T, raw json.RawMessage) CSVResult {
@@ -88,5 +90,41 @@ func TestCSVHandler_Execute_MalformedCSV(t *testing.T) {
 	_, err := h.Execute(context.Background(), json.RawMessage(`{"csv_data":"a,b\n\"unterminated"}`))
 	if err == nil {
 		t.Fatal("Execute() error = nil, want a parse error for malformed CSV")
+	}
+}
+
+func TestCSVHandler_Execute_EmailsSummary(t *testing.T) {
+	addr, received := startFakeSMTP(t)
+	h := &CSVHandler{Mailer: &Mailer{Addr: addr, From: "noreply@example.com"}}
+
+	result, err := h.Execute(context.Background(), json.RawMessage(
+		`{"csv_data":"score\n10\n20\n30","email_to":"user@example.com"}`,
+	))
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	res := decodeCSVResult(t, result)
+	if res.EmailedTo != "user@example.com" {
+		t.Errorf("EmailedTo = %q, want %q", res.EmailedTo, "user@example.com")
+	}
+
+	select {
+	case msg := <-received:
+		if !strings.Contains(msg, "CSV analysis") {
+			t.Errorf("captured message missing subject: %q", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("fake SMTP server did not receive a message")
+	}
+}
+
+func TestCSVHandler_Execute_EmailWithoutMailerErrors(t *testing.T) {
+	h := &CSVHandler{}
+	_, err := h.Execute(context.Background(), json.RawMessage(
+		`{"csv_data":"a,b\n1,2","email_to":"user@example.com"}`,
+	))
+	if err == nil {
+		t.Fatal("Execute() error = nil, want an error when email_to is set but no Mailer is configured")
 	}
 }

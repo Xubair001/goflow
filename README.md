@@ -9,7 +9,7 @@ shutdown, retries/backoff) end to end, not just syntax.
 ```
                  ┌────────────────────┐
    HTTP clients →│   API Server (Go)  │→ writes job row → PostgreSQL (source of truth)
-   React SPA     │  chi + REST + SSE  │
+   React SPA     │  Gin + REST + SSE  │
                  └─────────┬──────────┘
                            │
                  ┌─────────▼──────────┐
@@ -26,30 +26,14 @@ shutdown, retries/backoff) end to end, not just syntax.
               └──────────┘ └─────────┘  → write result/status to Postgres → XACK
 ```
 
-**Postgres is the source of truth**; Redis Streams is the fast delivery layer, never a store of
-record. A reconciler (part of the dispatcher) resets Postgres rows stuck `queued`/`running` past
-their lease back to `pending`, and each worker sweeps the stream's Pending Entries List for entries
-abandoned by dead peers — together, a crashed dispatcher or worker never silently loses a job.
+**Postgres is the source of truth**; Redis Streams is the fast delivery layer. A reconciler
+(part of the dispatcher) reclaims stream entries abandoned by dead workers and re-dispatches any
+Postgres row stuck `running` past its lease — so a crashed worker never silently loses a job.
 
-## What's here
+## Stack
 
-- **Six job types**, each a small, independently testable `Handler`: `send_email` (SMTP),
-  `resize_image` (fetch + resize), `process_csv` (per-column stats), `make_http_request` (arbitrary
-  outbound call), `generate_report` (a report on the queue itself), and `scheduled_task` — which
-  demonstrates recurring jobs with no separate cron system: on success, it enqueues its own next
-  occurrence directly through the store.
-- **A REST API** (submit/list/get/retry/cancel a job, queue stats) with a hand-written OpenAPI spec
-  served via Swagger UI at `/docs`, and a live stats feed over Server-Sent Events at
-  `/api/v1/events`.
-- **A React dashboard** — queue overview, filterable job list, job detail with retry/cancel — built
-  into the `apiserver` binary via `embed.FS`, so it's one binary in production, not a separate static
-  host.
-- **Prometheus metrics** on all three processes (`apiserver` folds `/metrics` into its main port;
-  `worker`/`dispatcher` each expose their own, since that's how they're actually scaled) and
-  structured JSON logging in production.
-- **A real retry story**: exponential backoff with full jitter, a configurable attempt budget per
-  job, and jobs that exhaust it land in `dead` rather than disappearing — retryable from the API or
-  dashboard.
+Go 1.26, PostgreSQL (`pgx`), Redis Streams (`go-redis`), Gin router, `log/slog`, Prometheus metrics,
+React + Vite + TypeScript + Tailwind for the dashboard, Docker Compose for local orchestration.
 
 ## Quick start
 

@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/abdullah-zubair/jobqueue/internal/job"
@@ -60,18 +59,18 @@ type createJobRequest struct {
 	MaxAttempts int             `json:"max_attempts"`
 }
 
-func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateJob(c *gin.Context) {
 	var req createJobRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "malformed JSON body")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "malformed JSON body")
 		return
 	}
 	if req.Type == "" {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, `"type" is required`)
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, `"type" is required`)
 		return
 	}
 	if _, err := s.registry.Lookup(req.Type); err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, fmt.Sprintf("unknown job type %q", req.Type))
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, fmt.Sprintf("unknown job type %q", req.Type))
 		return
 	}
 	if len(req.Payload) == 0 {
@@ -87,14 +86,14 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	j := job.New(req.Type, req.Payload, opts...)
-	if err := s.store.Create(r.Context(), j); err != nil {
+	if err := s.store.Create(c.Request.Context(), j); err != nil {
 		s.logger.Error("create job", "job_type", req.Type, "error", err)
-		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to create job")
+		writeError(c, http.StatusInternalServerError, codeInternal, "failed to create job")
 		return
 	}
 
 	s.logger.Info("job created", "job_id", j.ID, "job_type", j.Type)
-	writeJSON(w, s.logger, http.StatusCreated, toJobResponse(j))
+	c.JSON(http.StatusCreated, toJobResponse(j))
 }
 
 // listJobsResponse is the GET /api/v1/jobs response body.
@@ -105,38 +104,36 @@ type listJobsResponse struct {
 	Offset int           `json:"offset"`
 }
 
-func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-
+func (s *Server) handleListJobs(c *gin.Context) {
 	var filter store.ListFilter
-	if status := q.Get("status"); status != "" {
+	if status := c.Query("status"); status != "" {
 		st := job.Status(status)
 		if !st.Valid() {
-			writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, fmt.Sprintf("invalid status %q", status))
+			writeError(c, http.StatusBadRequest, codeInvalidRequest, fmt.Sprintf("invalid status %q", status))
 			return
 		}
 		filter.Status = &st
 	}
-	if jobType := q.Get("type"); jobType != "" {
+	if jobType := c.Query("type"); jobType != "" {
 		filter.Type = &jobType
 	}
 
-	limit, err := parseIntParam(q, "limit", defaultListLimit)
+	limit, err := parseIntQuery(c, "limit", defaultListLimit)
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, `invalid "limit"`)
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, `invalid "limit"`)
 		return
 	}
-	offset, err := parseIntParam(q, "offset", 0)
+	offset, err := parseIntQuery(c, "offset", 0)
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, `invalid "offset"`)
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, `invalid "offset"`)
 		return
 	}
 	filter.Limit, filter.Offset = limit, offset
 
-	result, err := s.store.List(r.Context(), filter)
+	result, err := s.store.List(c.Request.Context(), filter)
 	if err != nil {
 		s.logger.Error("list jobs", "error", err)
-		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to list jobs")
+		writeError(c, http.StatusInternalServerError, codeInternal, "failed to list jobs")
 		return
 	}
 
@@ -144,83 +141,83 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	for i, j := range result.Jobs {
 		jobs[i] = toJobResponse(j)
 	}
-	writeJSON(w, s.logger, http.StatusOK, listJobsResponse{
+	c.JSON(http.StatusOK, listJobsResponse{
 		Jobs: jobs, Total: result.Total, Limit: limit, Offset: offset,
 	})
 }
 
-func parseIntParam(q url.Values, name string, def int) (int, error) {
-	v := q.Get(name)
+func parseIntQuery(c *gin.Context, name string, def int) (int, error) {
+	v := c.Query(name)
 	if v == "" {
 		return def, nil
 	}
 	return strconv.Atoi(v)
 }
 
-func parseJobID(r *http.Request) (uuid.UUID, error) {
-	return uuid.Parse(chi.URLParam(r, "id"))
+func parseJobID(c *gin.Context) (uuid.UUID, error) {
+	return uuid.Parse(c.Param("id"))
 }
 
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
-	id, err := parseJobID(r)
+func (s *Server) handleGetJob(c *gin.Context) {
+	id, err := parseJobID(c)
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "invalid job id")
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "invalid job id")
 		return
 	}
 
-	j, err := s.store.Get(r.Context(), id)
+	j, err := s.store.Get(c.Request.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, s.logger, http.StatusNotFound, codeNotFound, "job not found")
+		writeError(c, http.StatusNotFound, codeNotFound, "job not found")
 		return
 	}
 	if err != nil {
 		s.logger.Error("get job", "job_id", id, "error", err)
-		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to get job")
+		writeError(c, http.StatusInternalServerError, codeInternal, "failed to get job")
 		return
 	}
-	writeJSON(w, s.logger, http.StatusOK, toJobResponse(j))
+	c.JSON(http.StatusOK, toJobResponse(j))
 }
 
 // handleRetryJob reactivates a dead or cancelled job. See Store.Reactivate
 // for why this isn't the same as the worker's internal Retry.
-func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
-	id, err := parseJobID(r)
+func (s *Server) handleRetryJob(c *gin.Context) {
+	id, err := parseJobID(c)
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "invalid job id")
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "invalid job id")
 		return
 	}
 
-	j, err := s.store.Reactivate(r.Context(), id)
+	j, err := s.store.Reactivate(c.Request.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, s.logger, http.StatusNotFound, codeNotFound, "job not found or not eligible for retry")
+		writeError(c, http.StatusNotFound, codeNotFound, "job not found or not eligible for retry")
 		return
 	}
 	if err != nil {
 		s.logger.Error("reactivate job", "job_id", id, "error", err)
-		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to retry job")
+		writeError(c, http.StatusInternalServerError, codeInternal, "failed to retry job")
 		return
 	}
 	s.logger.Info("job reactivated", "job_id", j.ID, "job_type", j.Type)
-	writeJSON(w, s.logger, http.StatusOK, toJobResponse(j))
+	c.JSON(http.StatusOK, toJobResponse(j))
 }
 
-func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
-	id, err := parseJobID(r)
+func (s *Server) handleCancelJob(c *gin.Context) {
+	id, err := parseJobID(c)
 	if err != nil {
-		writeError(w, s.logger, http.StatusBadRequest, codeInvalidRequest, "invalid job id")
+		writeError(c, http.StatusBadRequest, codeInvalidRequest, "invalid job id")
 		return
 	}
 
-	j, err := s.store.Cancel(r.Context(), id)
+	j, err := s.store.Cancel(c.Request.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, s.logger, http.StatusNotFound, codeNotFound, "job not found or not eligible for cancellation")
+		writeError(c, http.StatusNotFound, codeNotFound, "job not found or not eligible for cancellation")
 		return
 	}
 	if err != nil {
 		s.logger.Error("cancel job", "job_id", id, "error", err)
-		writeError(w, s.logger, http.StatusInternalServerError, codeInternal, "failed to cancel job")
+		writeError(c, http.StatusInternalServerError, codeInternal, "failed to cancel job")
 		return
 	}
 	s.logger.Info("job cancelled", "job_id", j.ID, "job_type", j.Type)
-	writeJSON(w, s.logger, http.StatusOK, toJobResponse(j))
+	c.JSON(http.StatusOK, toJobResponse(j))
 }

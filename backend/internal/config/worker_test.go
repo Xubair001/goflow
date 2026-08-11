@@ -28,6 +28,9 @@ func TestLoadWorker_Defaults(t *testing.T) {
 	if c.MetricsAddr != ":9091" {
 		t.Errorf("MetricsAddr = %q, want %q", c.MetricsAddr, ":9091")
 	}
+	if c.APIServerURL != "http://localhost:8080" {
+		t.Errorf("APIServerURL = %q, want %q", c.APIServerURL, "http://localhost:8080")
+	}
 }
 
 func TestLoadWorker_OverridesFromEnv(t *testing.T) {

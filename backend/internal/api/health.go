@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // pinger is satisfied directly by *pgxpool.Pool; go-redis's client needs a
@@ -14,21 +16,21 @@ type pinger interface {
 	Ping(ctx context.Context) error
 }
 
-func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
+func (s *Server) handleHealthz(c *gin.Context) {
+	c.Status(http.StatusOK)
 }
 
-func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+func (s *Server) handleReadyz(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
 	if err := s.db.Ping(ctx); err != nil {
-		writeError(w, s.logger, http.StatusServiceUnavailable, codeInternal, "database unavailable")
+		writeError(c, http.StatusServiceUnavailable, codeInternal, "database unavailable")
 		return
 	}
 	if err := s.redis.Ping(ctx); err != nil {
-		writeError(w, s.logger, http.StatusServiceUnavailable, codeInternal, "redis unavailable")
+		writeError(c, http.StatusServiceUnavailable, codeInternal, "redis unavailable")
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	c.Status(http.StatusOK)
 }

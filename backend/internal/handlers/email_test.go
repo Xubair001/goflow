@@ -83,7 +83,7 @@ func serveFakeSMTPSession(conn net.Conn, msgCh chan<- string) {
 
 func TestEmailHandler_Execute_Success(t *testing.T) {
 	addr, received := startFakeSMTP(t)
-	h := &EmailHandler{Addr: addr, From: "noreply@example.com"}
+	h := &EmailHandler{Mailer: &Mailer{Addr: addr, From: "noreply@example.com"}}
 
 	result, err := h.Execute(context.Background(), json.RawMessage(
 		`{"to":"user@example.com","subject":"Hi","body":"Hello there"}`,
@@ -114,14 +114,14 @@ func TestEmailHandler_Execute_Success(t *testing.T) {
 }
 
 func TestEmailHandler_Execute_MissingTo(t *testing.T) {
-	h := &EmailHandler{Addr: "localhost:1", From: "noreply@example.com"}
+	h := &EmailHandler{Mailer: &Mailer{Addr: "localhost:1", From: "noreply@example.com"}}
 	if _, err := h.Execute(context.Background(), json.RawMessage(`{"subject":"x"}`)); err == nil {
 		t.Fatal("Execute() error = nil, want an error for missing \"to\"")
 	}
 }
 
 func TestEmailHandler_Execute_RejectsCRLFInjection(t *testing.T) {
-	h := &EmailHandler{Addr: "localhost:1", From: "noreply@example.com"}
+	h := &EmailHandler{Mailer: &Mailer{Addr: "localhost:1", From: "noreply@example.com"}}
 	tests := []struct {
 		name    string
 		payload string
@@ -139,14 +139,14 @@ func TestEmailHandler_Execute_RejectsCRLFInjection(t *testing.T) {
 }
 
 func TestEmailHandler_Execute_InvalidPayload(t *testing.T) {
-	h := &EmailHandler{Addr: "localhost:1", From: "noreply@example.com"}
+	h := &EmailHandler{Mailer: &Mailer{Addr: "localhost:1", From: "noreply@example.com"}}
 	if _, err := h.Execute(context.Background(), json.RawMessage(`not json`)); err == nil {
 		t.Fatal("Execute() error = nil, want a decode error")
 	}
 }
 
 func TestEmailHandler_Execute_ContextCancelled(t *testing.T) {
-	h := &EmailHandler{Addr: "localhost:1", From: "noreply@example.com"}
+	h := &EmailHandler{Mailer: &Mailer{Addr: "localhost:1", From: "noreply@example.com"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

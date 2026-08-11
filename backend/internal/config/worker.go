@@ -25,11 +25,20 @@ type Worker struct {
 
 	// SMTP settings for the send_email handler. Defaults target a local
 	// Mailpit instance, which needs no auth -- leave SMTPUsername empty for
-	// that case.
+	// that case. Point these at a real provider's SMTP relay (see
+	// .env.example) to actually deliver mail instead of catching it locally.
 	SMTPAddr     string
 	SMTPFrom     string
 	SMTPUsername string
 	SMTPPassword string
+
+	// APIServerURL is how this worker reaches the apiserver -- currently
+	// only used to fetch dashboard-uploaded images for resize_image jobs.
+	// Defaults to localhost for running all three binaries directly on one
+	// host; docker-compose.yml overrides it to the apiserver service's
+	// name, since "localhost" inside the worker's own container isn't the
+	// apiserver.
+	APIServerURL string
 
 	// MetricsAddr serves /metrics and /healthz -- the worker has no other
 	// HTTP surface.
@@ -52,6 +61,7 @@ func LoadWorker() (Worker, error) {
 		SMTPFrom:      getEnv("SMTP_FROM", "jobqueue@example.com"),
 		SMTPUsername:  getEnv("SMTP_USERNAME", ""),
 		SMTPPassword:  getEnv("SMTP_PASSWORD", ""),
+		APIServerURL:  getEnv("APISERVER_URL", "http://localhost:8080"),
 		MetricsAddr:   getEnv("METRICS_ADDR", ":9091"),
 		LogEnv:        getEnv("LOG_ENV", "development"),
 		LogLevel:      getEnv("LOG_LEVEL", "info"),

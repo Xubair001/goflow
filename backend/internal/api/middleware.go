@@ -1,33 +1,70 @@
 package api
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
-	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-// requestLogger logs one structured line per request. It's a custom
-// middleware rather than chi's built-in Logger so output goes through the
-// same slog.Logger (and JSON-in-production / text-in-dev handler) as the
-// rest of the process, instead of chi's own stdlib-log-based format.
-func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+const requestIDKey = "request_id"
 
-			next.ServeHTTP(ww, r)
-
-			logger.Info("request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", ww.Status(),
-				"bytes", ww.BytesWritten(),
-				"duration", time.Since(start),
-				"request_id", middleware.GetReqID(r.Context()),
-			)
-		})
+// requestID assigns each request a UUID (reusing the caller's X-Request-Id
+// if it already set one, so a request traced through an upstream proxy
+// keeps one ID end to end), stashes it in the gin context for
+// requestLogger, and echoes it back as a response header.
+func requestID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetHeader("X-Request-Id")
+		if id == "" {
+			id = uuid.NewString()
+		}
+		c.Set(requestIDKey, id)
+		c.Header("X-Request-Id", id)
+		c.Next()
 	}
+}
+
+// requestLogger logs one structured line per request through logger (the
+// same slog.Logger, JSON-in-production / text-in-dev, as the rest of the
+// process) rather than Gin's own default logger, which writes plain text
+// straight to stdout regardless of environment.
+func requestLogger(logger *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+
+		size := c.Writer.Size()
+		if size < 0 { // nothing written, e.g. a 204 or an aborted request
+			size = 0
+		}
+		logger.Info("request",
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", c.Writer.Status(),
+			"bytes", size,
+			"duration", time.Since(start),
+			"request_id", c.GetString(requestIDKey),
+		)
+	}
+}
+
+// recovery turns a panicking handler into a 500 instead of a crashed
+// process, logging the panic and its stack trace through logger. It's a
+// custom middleware rather than gin.Recovery() so the panic goes through
+// the same structured logger as every other log line instead of gin's own
+// default writer -- the same reasoning as requestLogger above.
+func recovery(logger *slog.Logger) gin.HandlerFunc {
+	return gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, recovered any) {
+		logger.Error("panic recovered",
+			"error", recovered,
+			"path", c.Request.URL.Path,
+			"stack", string(debug.Stack()),
+		)
+		c.AbortWithStatus(http.StatusInternalServerError)
+	})
 }
