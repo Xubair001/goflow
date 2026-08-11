@@ -1,10 +1,12 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { api } from "../api/client";
 import {
   JOB_TYPES,
   JOB_TYPE_LABELS,
+  SCHEDULABLE_TARGET_TYPES,
   type HttpMethod,
   type JobType,
+  type ScheduledTargetType,
 } from "../api/types";
 
 interface JobFormProps {
@@ -19,6 +21,153 @@ const INTERVAL_SECONDS: Record<IntervalUnit, number> = {
   minutes: 60,
   hours: 3600,
 };
+
+const SCHEDULABLE_TARGET_LABELS: Record<ScheduledTargetType, string> = {
+  make_http_request: "Make HTTP request",
+  generate_report: "Generate report",
+  send_email: "Send email",
+};
+
+interface SendEmailFieldsProps {
+  to: string;
+  setTo: Dispatch<SetStateAction<string>>;
+  subject: string;
+  setSubject: Dispatch<SetStateAction<string>>;
+  body: string;
+  setBody: Dispatch<SetStateAction<string>>;
+}
+
+// Shared between the top-level "Send email" tab and the "Scheduled task"
+// tab's target fields (when target type is send_email) -- same state, so
+// whatever you already typed carries over if you switch to scheduling it.
+function SendEmailFields({ to, setTo, subject, setSubject, body, setBody }: SendEmailFieldsProps) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label className="sm:col-span-1">
+        <span className="field-label">To</span>
+        <input
+          type="email"
+          required
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="someone@example.com"
+          className="field"
+        />
+      </label>
+      <label className="sm:col-span-1">
+        <span className="field-label">Subject</span>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          placeholder="Hello!"
+          className="field"
+        />
+      </label>
+      <label className="sm:col-span-2">
+        <span className="field-label">Body</span>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={3}
+          placeholder="Message body…"
+          className="field"
+        />
+      </label>
+    </div>
+  );
+}
+
+interface MakeHttpRequestFieldsProps {
+  httpUrl: string;
+  setHttpUrl: Dispatch<SetStateAction<string>>;
+  httpMethod: HttpMethod;
+  setHttpMethod: Dispatch<SetStateAction<HttpMethod>>;
+  httpBody: string;
+  setHttpBody: Dispatch<SetStateAction<string>>;
+}
+
+function MakeHttpRequestFields({
+  httpUrl,
+  setHttpUrl,
+  httpMethod,
+  setHttpMethod,
+  httpBody,
+  setHttpBody,
+}: MakeHttpRequestFieldsProps) {
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3">
+        <label className="w-32">
+          <span className="field-label">Method</span>
+          <select value={httpMethod} onChange={(e) => setHttpMethod(e.target.value as HttpMethod)} className="field">
+            {(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex-1">
+          <span className="field-label">URL</span>
+          <input
+            type="url"
+            value={httpUrl}
+            onChange={(e) => setHttpUrl(e.target.value)}
+            placeholder="https://api.example.com/resource"
+            className="field"
+          />
+        </label>
+      </div>
+      {httpMethod !== "GET" && httpMethod !== "DELETE" && (
+        <label className="block">
+          <span className="field-label">Body (optional)</span>
+          <textarea value={httpBody} onChange={(e) => setHttpBody(e.target.value)} rows={3} className="field font-mono" />
+        </label>
+      )}
+    </div>
+  );
+}
+
+interface GenerateReportFieldsProps {
+  failedSampleSize: string;
+  setFailedSampleSize: Dispatch<SetStateAction<string>>;
+  reportEmailTo: string;
+  setReportEmailTo: Dispatch<SetStateAction<string>>;
+}
+
+function GenerateReportFields({
+  failedSampleSize,
+  setFailedSampleSize,
+  reportEmailTo,
+  setReportEmailTo,
+}: GenerateReportFieldsProps) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label>
+        <span className="field-label">Failed sample size (optional)</span>
+        <input
+          type="number"
+          min={1}
+          value={failedSampleSize}
+          onChange={(e) => setFailedSampleSize(e.target.value)}
+          placeholder="Default: 5"
+          className="field"
+        />
+      </label>
+      <label>
+        <span className="field-label">Email to (optional)</span>
+        <input
+          type="email"
+          value={reportEmailTo}
+          onChange={(e) => setReportEmailTo(e.target.value)}
+          placeholder="you@example.com"
+          className="field"
+        />
+      </label>
+    </div>
+  );
+}
 
 export function JobForm({ onCreated }: JobFormProps) {
   const [type, setType] = useState<JobType>("send_email");
@@ -43,6 +192,7 @@ export function JobForm({ onCreated }: JobFormProps) {
 
   // process_csv
   const [csvData, setCsvData] = useState("name,value\nAlice,90\nBob,80");
+  const [csvEmailTo, setCsvEmailTo] = useState("");
 
   // make_http_request
   const [httpUrl, setHttpUrl] = useState("https://example.com");
@@ -51,9 +201,13 @@ export function JobForm({ onCreated }: JobFormProps) {
 
   // generate_report
   const [failedSampleSize, setFailedSampleSize] = useState("");
+  const [reportEmailTo, setReportEmailTo] = useState("");
 
-  // scheduled_task
-  const [taskMessage, setTaskMessage] = useState("tick");
+  // scheduled_task -- target fields are the same state as the matching
+  // top-level tab above (SendEmailFields / MakeHttpRequestFields /
+  // GenerateReportFields), so filling in "Send email" and then scheduling
+  // it carries the values over instead of asking twice.
+  const [targetType, setTargetType] = useState<ScheduledTargetType>("make_http_request");
   const [intervalValue, setIntervalValue] = useState(60);
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("seconds");
 
@@ -81,6 +235,24 @@ export function JobForm({ onCreated }: JobFormProps) {
     setCsvData(await file.text());
   }
 
+  function buildTargetPayload(): { payload: unknown; error?: string } {
+    switch (targetType) {
+      case "make_http_request":
+        if (!httpUrl) return { payload: null, error: "URL is required" };
+        return { payload: { url: httpUrl, method: httpMethod, ...(httpBody ? { body: httpBody } : {}) } };
+      case "generate_report":
+        return {
+          payload: {
+            ...(failedSampleSize !== "" ? { failed_sample_size: Number(failedSampleSize) } : {}),
+            ...(reportEmailTo ? { email_to: reportEmailTo } : {}),
+          },
+        };
+      case "send_email":
+        if (!to) return { payload: null, error: '"To" is required' };
+        return { payload: { to, subject, body } };
+    }
+  }
+
   function buildPayload(): { payload: unknown; error?: string } {
     switch (type) {
       case "send_email":
@@ -100,7 +272,7 @@ export function JobForm({ onCreated }: JobFormProps) {
 
       case "process_csv":
         if (!csvData.trim()) return { payload: null, error: "CSV data is required" };
-        return { payload: { csv_data: csvData } };
+        return { payload: { csv_data: csvData, ...(csvEmailTo ? { email_to: csvEmailTo } : {}) } };
 
       case "make_http_request":
         if (!httpUrl) return { payload: null, error: "URL is required" };
@@ -114,17 +286,24 @@ export function JobForm({ onCreated }: JobFormProps) {
 
       case "generate_report":
         return {
-          payload: failedSampleSize === "" ? {} : { failed_sample_size: Number(failedSampleSize) },
+          payload: {
+            ...(failedSampleSize !== "" ? { failed_sample_size: Number(failedSampleSize) } : {}),
+            ...(reportEmailTo ? { email_to: reportEmailTo } : {}),
+          },
         };
 
-      case "scheduled_task":
+      case "scheduled_task": {
         if (intervalValue <= 0) return { payload: null, error: "Interval must be positive" };
+        const { payload: targetPayload, error: targetError } = buildTargetPayload();
+        if (targetError) return { payload: null, error: targetError };
         return {
           payload: {
-            message: taskMessage,
+            target_type: targetType,
+            target_payload: targetPayload,
             interval_seconds: intervalValue * INTERVAL_SECONDS[intervalUnit],
           },
         };
+      }
     }
   }
 
@@ -179,39 +358,7 @@ export function JobForm({ onCreated }: JobFormProps) {
       </div>
 
       {type === "send_email" && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="sm:col-span-1">
-            <span className="field-label">To</span>
-            <input
-              type="email"
-              required
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="someone@example.com"
-              className="field"
-            />
-          </label>
-          <label className="sm:col-span-1">
-            <span className="field-label">Subject</span>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Hello!"
-              className="field"
-            />
-          </label>
-          <label className="sm:col-span-2">
-            <span className="field-label">Body</span>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={3}
-              placeholder="Message body…"
-              className="field"
-            />
-          </label>
-        </div>
+        <SendEmailFields to={to} setTo={setTo} subject={subject} setSubject={setSubject} body={body} setBody={setBody} />
       )}
 
       {type === "resize_image" && (
@@ -296,111 +443,125 @@ export function JobForm({ onCreated }: JobFormProps) {
       )}
 
       {type === "process_csv" && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="field-label !mb-0">CSV data</span>
-            <label className="btn-secondary btn-sm cursor-pointer">
-              Upload .csv file
-              <input type="file" accept=".csv,text/csv" onChange={handleCsvFileChange} className="hidden" />
-            </label>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="field-label !mb-0">CSV data</span>
+              <label className="btn-secondary btn-sm cursor-pointer">
+                Upload .csv file
+                <input type="file" accept=".csv,text/csv" onChange={handleCsvFileChange} className="hidden" />
+              </label>
+            </div>
+            <textarea
+              value={csvData}
+              onChange={(e) => setCsvData(e.target.value)}
+              rows={5}
+              className="field font-mono"
+            />
           </div>
-          <textarea
-            value={csvData}
-            onChange={(e) => setCsvData(e.target.value)}
-            rows={5}
-            className="field font-mono"
-          />
+          <label className="block sm:w-72">
+            <span className="field-label">Email results to (optional)</span>
+            <input
+              type="email"
+              value={csvEmailTo}
+              onChange={(e) => setCsvEmailTo(e.target.value)}
+              placeholder="you@example.com"
+              className="field"
+            />
+          </label>
         </div>
       )}
 
       {type === "make_http_request" && (
+        <MakeHttpRequestFields
+          httpUrl={httpUrl}
+          setHttpUrl={setHttpUrl}
+          httpMethod={httpMethod}
+          setHttpMethod={setHttpMethod}
+          httpBody={httpBody}
+          setHttpBody={setHttpBody}
+        />
+      )}
+
+      {type === "generate_report" && (
+        <GenerateReportFields
+          failedSampleSize={failedSampleSize}
+          setFailedSampleSize={setFailedSampleSize}
+          reportEmailTo={reportEmailTo}
+          setReportEmailTo={setReportEmailTo}
+        />
+      )}
+
+      {type === "scheduled_task" && (
         <div className="space-y-3">
-          <div className="flex gap-3">
-            <label className="w-32">
-              <span className="field-label">Method</span>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex-1 sm:max-w-xs">
+              <span className="field-label">Run this job type</span>
               <select
-                value={httpMethod}
-                onChange={(e) => setHttpMethod(e.target.value as HttpMethod)}
+                value={targetType}
+                onChange={(e) => setTargetType(e.target.value as ScheduledTargetType)}
                 className="field"
               >
-                {(["GET", "POST", "PUT", "PATCH", "DELETE"] as const).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+                {SCHEDULABLE_TARGET_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {SCHEDULABLE_TARGET_LABELS[t]}
                   </option>
                 ))}
               </select>
             </label>
-            <label className="flex-1">
-              <span className="field-label">URL</span>
-              <input
-                type="url"
-                value={httpUrl}
-                onChange={(e) => setHttpUrl(e.target.value)}
-                placeholder="https://api.example.com/resource"
-                className="field"
-              />
+            <label>
+              <span className="field-label">Repeat every</span>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={intervalValue}
+                  onChange={(e) => setIntervalValue(Number(e.target.value))}
+                  className="field w-20"
+                />
+                <select
+                  value={intervalUnit}
+                  onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
+                  className="field"
+                >
+                  <option value="seconds">Seconds</option>
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                </select>
+              </div>
             </label>
           </div>
-          {httpMethod !== "GET" && httpMethod !== "DELETE" && (
-            <label className="block">
-              <span className="field-label">Body (optional)</span>
-              <textarea
-                value={httpBody}
-                onChange={(e) => setHttpBody(e.target.value)}
-                rows={3}
-                className="field font-mono"
-              />
-            </label>
-          )}
-        </div>
-      )}
 
-      {type === "generate_report" && (
-        <label className="block w-56">
-          <span className="field-label">Failed sample size (optional)</span>
-          <input
-            type="number"
-            min={1}
-            value={failedSampleSize}
-            onChange={(e) => setFailedSampleSize(e.target.value)}
-            placeholder="Default: 5"
-            className="field"
-          />
-        </label>
-      )}
-
-      {type === "scheduled_task" && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label>
-            <span className="field-label">Message</span>
-            <input
-              type="text"
-              value={taskMessage}
-              onChange={(e) => setTaskMessage(e.target.value)}
-              className="field"
-            />
-          </label>
-          <label>
-            <span className="field-label">Repeat every</span>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min={1}
-                value={intervalValue}
-                onChange={(e) => setIntervalValue(Number(e.target.value))}
-                className="field w-20"
+          <div className="rounded-lg border border-border-hairline p-3">
+            {targetType === "make_http_request" && (
+              <MakeHttpRequestFields
+                httpUrl={httpUrl}
+                setHttpUrl={setHttpUrl}
+                httpMethod={httpMethod}
+                setHttpMethod={setHttpMethod}
+                httpBody={httpBody}
+                setHttpBody={setHttpBody}
               />
-              <select
-                value={intervalUnit}
-                onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
-                className="field"
-              >
-                <option value="seconds">Seconds</option>
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-              </select>
-            </div>
-          </label>
+            )}
+            {targetType === "generate_report" && (
+              <GenerateReportFields
+                failedSampleSize={failedSampleSize}
+                setFailedSampleSize={setFailedSampleSize}
+                reportEmailTo={reportEmailTo}
+                setReportEmailTo={setReportEmailTo}
+              />
+            )}
+            {targetType === "send_email" && (
+              <SendEmailFields
+                to={to}
+                setTo={setTo}
+                subject={subject}
+                setSubject={setSubject}
+                body={body}
+                setBody={setBody}
+              />
+            )}
+          </div>
         </div>
       )}
 

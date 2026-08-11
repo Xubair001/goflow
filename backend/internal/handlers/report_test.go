@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -74,5 +76,42 @@ func TestReportHandler_Execute_StatsError(t *testing.T) {
 	h := &ReportHandler{Store: &fakeStore{statsErr: errors.New("db down")}}
 	if _, err := h.Execute(context.Background(), json.RawMessage(`{}`)); err == nil {
 		t.Fatal("Execute() error = nil, want the underlying Stats error surfaced")
+	}
+}
+
+func TestReportHandler_Execute_EmailsReport(t *testing.T) {
+	addr, received := startFakeSMTP(t)
+	h := &ReportHandler{
+		Store:  &fakeStore{stats: store.Stats{Pending: 1, Completed: 9}},
+		Mailer: &Mailer{Addr: addr, From: "noreply@example.com"},
+	}
+
+	result, err := h.Execute(context.Background(), json.RawMessage(`{"email_to":"user@example.com"}`))
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var res ReportResult
+	if err := json.Unmarshal(result, &res); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if res.EmailedTo != "user@example.com" {
+		t.Errorf("EmailedTo = %q, want %q", res.EmailedTo, "user@example.com")
+	}
+
+	select {
+	case msg := <-received:
+		if !strings.Contains(msg, "Queue report") {
+			t.Errorf("captured message missing report subject: %q", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("fake SMTP server did not receive a message")
+	}
+}
+
+func TestReportHandler_Execute_EmailWithoutMailerErrors(t *testing.T) {
+	h := &ReportHandler{Store: &fakeStore{}}
+	if _, err := h.Execute(context.Background(), json.RawMessage(`{"email_to":"user@example.com"}`)); err == nil {
+		t.Fatal("Execute() error = nil, want an error when email_to is set but no Mailer is configured")
 	}
 }

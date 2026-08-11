@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,9 +22,13 @@ const ReportJobType = "generate_report"
 const defaultFailedSampleSize = 5
 
 // ReportPayload is the generate_report job's input; an empty payload is
-// valid and uses the default sample size.
+// valid and uses the default sample size. When EmailTo is set, the
+// generated report is also emailed there via Mailer -- turning "view a
+// report in the dashboard" into "get the report delivered", which is also
+// what makes generate_report a meaningful ScheduledTaskHandler target.
 type ReportPayload struct {
-	FailedSampleSize int `json:"failed_sample_size"`
+	FailedSampleSize int    `json:"failed_sample_size"`
+	EmailTo          string `json:"email_to,omitempty"`
 }
 
 // DeadJobBrief summarizes one dead job for ReportResult.RecentDeadJobs.
@@ -32,19 +38,25 @@ type DeadJobBrief struct {
 	LastError string    `json:"last_error"`
 }
 
-// ReportResult is the generate_report job's output.
+// ReportResult is the generate_report job's output. EmailedTo is set only
+// when the payload requested delivery and it succeeded.
 type ReportResult struct {
 	GeneratedAt    time.Time      `json:"generated_at"`
 	Stats          store.Stats    `json:"stats"`
 	RecentDeadJobs []DeadJobBrief `json:"recent_dead_jobs"`
 	Summary        string         `json:"summary"`
+	EmailedTo      string         `json:"emailed_to,omitempty"`
 }
 
 // ReportHandler generates a point-in-time report on the job queue itself:
 // counts by status plus a sample of recently dead jobs, which is the kind
 // of thing worth running on a recurring schedule (see ScheduledTaskHandler).
+// Mailer is optional -- leave it nil if send_email isn't configured; an
+// EmailTo request without one fails with a clear error instead of silently
+// no-op'ing.
 type ReportHandler struct {
-	Store store.Store
+	Store  store.Store
+	Mailer *Mailer
 }
 
 var _ job.Handler = (*ReportHandler)(nil)
@@ -79,7 +91,7 @@ func (h *ReportHandler) Execute(ctx context.Context, payload json.RawMessage) (j
 	}
 
 	generatedAt := time.Now().UTC()
-	return json.Marshal(ReportResult{
+	result := ReportResult{
 		GeneratedAt:    generatedAt,
 		Stats:          stats,
 		RecentDeadJobs: recent,
@@ -88,5 +100,33 @@ func (h *ReportHandler) Execute(ctx context.Context, payload json.RawMessage) (j
 			generatedAt.Format(time.RFC3339),
 			stats.Pending, stats.Queued, stats.Running, stats.Completed, stats.Dead, stats.Cancelled,
 		),
-	})
+	}
+
+	if p.EmailTo != "" {
+		if h.Mailer == nil {
+			return nil, errors.New("handlers: report requested email delivery but no SMTP mailer is configured")
+		}
+		if err := h.Mailer.Send(p.EmailTo, reportEmailSubject(generatedAt), reportEmailBody(result)); err != nil {
+			return nil, fmt.Errorf("handlers: email report: %w", err)
+		}
+		result.EmailedTo = p.EmailTo
+	}
+
+	return json.Marshal(result)
+}
+
+func reportEmailSubject(generatedAt time.Time) string {
+	return fmt.Sprintf("GoFlow queue report — %s", generatedAt.Format(time.RFC3339))
+}
+
+func reportEmailBody(r ReportResult) string {
+	var b strings.Builder
+	b.WriteString(r.Summary)
+	if len(r.RecentDeadJobs) > 0 {
+		b.WriteString("\n\nRecent dead jobs:\n")
+		for _, j := range r.RecentDeadJobs {
+			fmt.Fprintf(&b, "- %s (%s): %s\n", j.ID, j.Type, j.LastError)
+		}
+	}
+	return b.String()
 }

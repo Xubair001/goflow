@@ -111,6 +111,7 @@ export interface ResizeImagePayload {
 
 export interface ProcessCsvPayload {
   csv_data: string;
+  email_to?: string;
 }
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -123,10 +124,20 @@ export interface MakeHttpRequestPayload {
 
 export interface GenerateReportPayload {
   failed_sample_size?: number;
+  email_to?: string;
 }
 
+// Scheduled tasks can recur into any job type in principle, but the form
+// only offers these three: they're the ones where "run this again later"
+// is actually useful (a recurring health check, a periodic emailed report,
+// a reminder email) rather than replaying a one-off input like an uploaded
+// image or pasted CSV.
+export const SCHEDULABLE_TARGET_TYPES = ["make_http_request", "generate_report", "send_email"] as const;
+export type ScheduledTargetType = (typeof SCHEDULABLE_TARGET_TYPES)[number];
+
 export interface ScheduledTaskPayload {
-  message: string;
+  target_type: ScheduledTargetType;
+  target_payload?: unknown;
   interval_seconds?: number;
 }
 
@@ -144,6 +155,7 @@ export interface ProcessCsvResult {
   row_count: number;
   column_count: number;
   columns: ColumnSummary[];
+  emailed_to?: string;
 }
 
 export interface ResizeImageResult {
@@ -172,11 +184,14 @@ export interface GenerateReportResult {
   stats: QueueStats;
   recent_dead_jobs: DeadJobBrief[];
   summary: string;
+  emailed_to?: string;
 }
 
 export interface ScheduledTaskResult {
   ran_at: string;
-  message: string;
+  target_type: string;
+  target_result?: unknown;
+  target_error?: string;
   next_job_id?: string;
   next_run_at?: string;
 }

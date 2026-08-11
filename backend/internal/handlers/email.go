@@ -30,15 +30,19 @@ type EmailResult struct {
 	SentAt time.Time `json:"sent_at"`
 }
 
-// EmailHandler sends plain-text email via SMTP. net/smtp.SendMail
-// negotiates STARTTLS automatically when the server advertises it, so this
-// works unmodified against real providers on the standard submission port
-// 587 (Gmail, Outlook, SendGrid, Mailgun, SES, ...) with Username/Password
-// set to that provider's SMTP credentials -- not just the unauthenticated
-// local Mailpit sink used in dev. It does NOT support implicit-TLS-only
-// endpoints (e.g. port 465 with no STARTTLS), and has no per-call
-// cancellation since net/smtp.SendMail is synchronous and ctx-unaware.
-type EmailHandler struct {
+// Mailer sends plain-text email via SMTP. net/smtp.SendMail negotiates
+// STARTTLS automatically when the server advertises it, so this works
+// unmodified against real providers on the standard submission port 587
+// (Gmail, Outlook, SendGrid, Mailgun, SES, ...) with Username/Password set
+// to that provider's SMTP credentials -- not just the unauthenticated local
+// Mailpit sink used in dev. It does NOT support implicit-TLS-only endpoints
+// (e.g. port 465 with no STARTTLS), and has no per-call cancellation since
+// net/smtp.SendMail is synchronous and ctx-unaware.
+//
+// Extracted out of EmailHandler so other handlers that can optionally email
+// their own output (ReportHandler, CSVHandler) share the exact same
+// delivery path instead of each wiring SMTP themselves.
+type Mailer struct {
 	// Addr is the SMTP server address, e.g. "localhost:1025".
 	Addr string
 	// From is the envelope and header From address.
@@ -47,6 +51,37 @@ type EmailHandler struct {
 	// leave both empty for an unauthenticated relay like Mailpit.
 	Username string
 	Password string
+}
+
+// Send delivers a plain-text email. It rejects header injection via CRLF in
+// to/subject rather than silently stripping it, so a malformed job surfaces
+// as an error instead of a corrupted or hijacked message.
+func (m *Mailer) Send(to, subject, body string) error {
+	if err := rejectCRLF("to", to); err != nil {
+		return err
+	}
+	if err := rejectCRLF("subject", subject); err != nil {
+		return err
+	}
+
+	msg := buildMessage(m.From, to, subject, body)
+	if err := smtp.SendMail(m.Addr, m.auth(), m.From, []string{to}, msg); err != nil {
+		return fmt.Errorf("handlers: send email: %w", err)
+	}
+	return nil
+}
+
+func (m *Mailer) auth() smtp.Auth {
+	if m.Username == "" {
+		return nil
+	}
+	host, _, _ := strings.Cut(m.Addr, ":")
+	return smtp.PlainAuth("", m.Username, m.Password, host)
+}
+
+// EmailHandler sends plain-text email via Mailer.
+type EmailHandler struct {
+	Mailer *Mailer
 }
 
 var _ job.Handler = (*EmailHandler)(nil)
@@ -64,31 +99,12 @@ func (h *EmailHandler) Execute(ctx context.Context, payload json.RawMessage) (js
 	if p.To == "" {
 		return nil, errors.New("handlers: email payload missing \"to\"")
 	}
-	// Reject header injection via CRLF in attacker-influenced fields rather
-	// than silently stripping it, so a malformed job surfaces as an error
-	// instead of a corrupted or hijacked message.
-	if err := rejectCRLF("to", p.To); err != nil {
-		return nil, err
-	}
-	if err := rejectCRLF("subject", p.Subject); err != nil {
-		return nil, err
-	}
 
-	auth := h.auth()
-	msg := buildMessage(h.From, p.To, p.Subject, p.Body)
-	if err := smtp.SendMail(h.Addr, auth, h.From, []string{p.To}, msg); err != nil {
-		return nil, fmt.Errorf("handlers: send email: %w", err)
+	if err := h.Mailer.Send(p.To, p.Subject, p.Body); err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(EmailResult{SentTo: p.To, SentAt: time.Now().UTC()})
-}
-
-func (h *EmailHandler) auth() smtp.Auth {
-	if h.Username == "" {
-		return nil
-	}
-	host, _, _ := strings.Cut(h.Addr, ":")
-	return smtp.PlainAuth("", h.Username, h.Password, host)
 }
 
 func buildMessage(from, to, subject, body string) []byte {

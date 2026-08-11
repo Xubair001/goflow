@@ -74,6 +74,11 @@ function ProcessCsvOutput({ job, result }: { job: Job; result: ProcessCsvResult 
       <p className="mb-2 text-xs text-text-muted">
         {result.row_count} rows · {result.column_count} columns
       </p>
+      {result.emailed_to && (
+        <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-status-good/10 px-3 py-2 text-xs text-status-good">
+          <span aria-hidden="true">✓</span> Emailed to {result.emailed_to}
+        </p>
+      )}
       <div className="overflow-x-auto rounded-lg border border-border-hairline">
         <table className="w-full text-left text-xs">
           <thead>
@@ -168,6 +173,11 @@ function GenerateReportOutput({ job, result }: { job: Job; result: GenerateRepor
         </DownloadButton>
       </div>
       <p className="mb-2 text-sm text-text-primary">{result.summary}</p>
+      {result.emailed_to && (
+        <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-status-good/10 px-3 py-2 text-xs text-status-good">
+          <span aria-hidden="true">✓</span> Emailed to {result.emailed_to}
+        </p>
+      )}
       <dl className="mb-2 grid grid-cols-3 gap-2 text-xs">
         {(
           [
@@ -210,9 +220,23 @@ function ScheduledTaskOutput({ job, result }: { job: Job; result: ScheduledTaskR
           Download
         </DownloadButton>
       </div>
-      <p className="text-sm text-text-primary">{result.message || <span className="text-text-muted">(no message)</span>}</p>
+      <p className="mb-2 text-xs text-text-muted">
+        Ran{" "}
+        <span className="font-medium text-text-primary">
+          {JOB_TYPE_LABELS[result.target_type as JobType] ?? result.target_type}
+        </span>
+      </p>
+      {result.target_error ? (
+        <p className="rounded-lg bg-status-critical/10 px-3 py-2 text-sm text-status-critical">
+          Failed: {result.target_error}
+        </p>
+      ) : (
+        <pre className="max-h-64 overflow-auto rounded-lg bg-surface-sunken p-3 text-xs text-text-primary">
+          {JSON.stringify(result.target_result, null, 2)}
+        </pre>
+      )}
       {result.next_run_at && (
-        <p className="mt-1.5 text-xs text-text-muted">
+        <p className="mt-2 text-xs text-text-muted">
           Next occurrence: {formatRelativeTime(result.next_run_at)}
           {result.next_job_id && <> · job {result.next_job_id.slice(0, 8)}</>}
         </p>
